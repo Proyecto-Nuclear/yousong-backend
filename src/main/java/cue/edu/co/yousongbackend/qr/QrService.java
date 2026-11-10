@@ -5,6 +5,8 @@ import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
 import cue.edu.co.yousongbackend.sesion.Sesion;
 import cue.edu.co.yousongbackend.sesion.SesionService;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class QrService {
 
+    private static final Logger log = LoggerFactory.getLogger(QrService.class);
+
     private final EstablecimientoService establecimientos;
     private final SesionService sesiones;
     private final String publicBaseUrl;
@@ -25,6 +29,11 @@ public class QrService {
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
         this.publicBaseUrl = PublicBaseUrl.normalizar(publicBaseUrl);
+        if (PublicBaseUrl.apuntaAEstaMaquina(this.publicBaseUrl)) {
+            log.warn("app.public-base-url points to this machine ({}). QR codes will only work on it; "
+                    + "set PUBLIC_BASE_URL to the public address of the client app before printing or sharing them.",
+                    this.publicBaseUrl);
+        }
     }
 
     @Transactional(readOnly = true)

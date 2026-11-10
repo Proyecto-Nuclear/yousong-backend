@@ -32,4 +32,16 @@ class PublicBaseUrlTest {
     void refusesANullValue() {
         assertThatThrownBy(() -> PublicBaseUrl.normalizar(null)).isInstanceOf(IllegalStateException.class);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://localhost:3000", "https://LOCALHOST", "http://127.0.0.1:3000", "http://[::1]:3000", "http://0.0.0.0"})
+    void recognizesAddressesThatOnlyWorkOnTheServerItself(String value) {
+        assertThat(PublicBaseUrl.apuntaAEstaMaquina(PublicBaseUrl.normalizar(value))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://yousong.example", "https://local.example.com", "http://192.168.1.20:3000", "https://localhost.example.org"})
+    void doesNotFlagRealAddresses(String value) {
+        assertThat(PublicBaseUrl.apuntaAEstaMaquina(PublicBaseUrl.normalizar(value))).isFalse();
+    }
 }
