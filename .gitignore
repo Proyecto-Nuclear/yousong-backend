@@ -36,6 +36,9 @@ out/
 ### VS Code ###
 .vscode/
 
+### Local task tracking (not versioned) ###
+odd/
+
 ### Local environment (secrets) ###
 .env
 .env.*
