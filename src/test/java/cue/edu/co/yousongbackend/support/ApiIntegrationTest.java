@@ -47,7 +47,7 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
     private static final LocalJwksServer JWKS = new LocalJwksServer(SIGNING_KEY);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    protected record Local(UUID id, String slug) {
+    public record Local(UUID id, String slug) {
     }
 
     @LocalServerPort
@@ -115,6 +115,21 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
         return send(request(path, bearer).POST(BodyPublishers.noBody()).build());
     }
 
+    protected HttpResponse<String> post(String path, String bearer, String jsonBody) {
+        return send(request(path, bearer).header("Content-Type", "application/json")
+                .POST(BodyPublishers.ofString(jsonBody)).build());
+    }
+
+    protected HttpResponse<String> put(String path, String bearer, String jsonBody) {
+        return send(request(path, bearer).header("Content-Type", "application/json")
+                .PUT(BodyPublishers.ofString(jsonBody)).build());
+    }
+
+    protected HttpResponse<String> patch(String path, String bearer, String jsonBody) {
+        return send(request(path, bearer).header("Content-Type", "application/json")
+                .method("PATCH", BodyPublishers.ofString(jsonBody)).build());
+    }
+
     private HttpRequest.Builder request(String path, String bearer) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .timeout(Duration.ofSeconds(15));
@@ -173,6 +188,13 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
         jdbc.update("INSERT INTO operacion.participacion (id, sesion_id, seudonimo) VALUES (?, ?, ?)",
                 id, sesionId, "p-" + id.toString().substring(0, 8));
         return id;
+    }
+
+    /** A well-formed, unique YouTube video id (11 characters of the URL-safe alphabet). */
+    protected static String videoIdAleatorio() {
+        byte[] bytes = new byte[8];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     protected UUID cancion() {

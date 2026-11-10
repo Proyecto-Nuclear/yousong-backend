@@ -47,4 +47,21 @@ public class EventoOutboxPublisher {
         evento.setPayload(json.writeValueAsString(payload));
         entityManager.persist(evento);
     }
+
+    /**
+     * Next version for events of one type about one aggregate, for aggregates that have no version column
+     * of their own. The caller must serialize concurrent changes to the aggregate (e.g. with a row lock).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public long siguienteVersion(String agregadoTipo, UUID agregadoId, String eventType) {
+        Long maxima = entityManager.createQuery("""
+                select max(e.agregadoVersion) from EventoOutbox e
+                 where e.agregadoTipo = :tipo and e.agregadoId = :id and e.eventType = :evento
+                """, Long.class)
+                .setParameter("tipo", agregadoTipo)
+                .setParameter("id", agregadoId)
+                .setParameter("evento", eventType)
+                .getSingleResult();
+        return maxima == null ? 1 : maxima + 1;
+    }
 }

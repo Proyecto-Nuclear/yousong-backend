@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface EstablecimientoRepository extends JpaRepository<Establecimiento, UUID> {
 
+    boolean existsByQrSlug(String qrSlug);
+
     /** Row lock: serializes operations that must not interleave for one establishment (e.g. opening a session). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from Establecimiento e where e.id = :id")

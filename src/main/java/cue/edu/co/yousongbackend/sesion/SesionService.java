@@ -142,6 +142,11 @@ public class SesionService {
                 .orElseThrow(() -> ApiException.notFound("NO_ACTIVE_SESSION", "The establishment has no session in operation"));
     }
 
+    @Transactional(readOnly = true)
+    public boolean hayEnOperacion(UUID establecimientoId) {
+        return sesiones.findFirstByEstablecimientoIdAndEstadoIn(establecimientoId, EN_OPERACION).isPresent();
+    }
+
     /** Microsecond precision, like the database, so what we return equals what is stored. */
     private Instant ahora() {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
