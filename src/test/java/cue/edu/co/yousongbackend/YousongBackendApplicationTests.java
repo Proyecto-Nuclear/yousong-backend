@@ -1,10 +1,9 @@
 package cue.edu.co.yousongbackend;
 
+import cue.edu.co.yousongbackend.support.PostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class YousongBackendApplicationTests {
+class YousongBackendApplicationTests extends PostgresIntegrationTest {
 
     @Test
     void contextLoads() {
