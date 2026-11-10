@@ -3,6 +3,7 @@ package cue.edu.co.yousongbackend.establecimiento;
 import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
 import cue.edu.co.yousongbackend.integracion.EventoOutboxPublisher;
 import cue.edu.co.yousongbackend.sesion.SesionService;
+import cue.edu.co.yousongbackend.shared.persistence.BloqueoTransaccional;
 import cue.edu.co.yousongbackend.shared.web.ApiException;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
@@ -13,7 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,22 +35,27 @@ public class EstablecimientoConfiguracionService {
     private final SesionService sesiones;
     private final EventoOutboxPublisher eventos;
     private final EntityManager entityManager;
+    private final BloqueoTransaccional bloqueos;
     private final Clock clock;
 
     EstablecimientoConfiguracionService(EstablecimientoRepository repository, EstablecimientoService establecimientos,
                                         SesionService sesiones, EventoOutboxPublisher eventos,
-                                        EntityManager entityManager, Clock clock) {
+                                        EntityManager entityManager, BloqueoTransaccional bloqueos, Clock clock) {
         this.repository = repository;
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
         this.eventos = eventos;
         this.entityManager = entityManager;
+        this.bloqueos = bloqueos;
         this.clock = clock;
     }
 
     @Transactional
     public EstablecimientoResponse crear(CrearEstablecimientoRequest request) {
         String zona = request.zonaHoraria() == null ? DEFAULT_TIME_ZONE : validarZona(request.zonaHoraria());
+        // "This slug is free" is a rule about a row that does not exist yet, so a row lock cannot protect it.
+        // Creating an establishment is rare, so serializing it is cheap and removes the check-then-insert race.
+        bloqueos.tomar(BloqueoTransaccional.Clave.CREACION_DE_ESTABLECIMIENTO);
         String slug = request.qrSlug() != null ? slugExplicito(request.qrSlug()) : slugGenerado(request.nombre());
 
         Establecimiento establecimiento = new Establecimiento();
@@ -60,12 +65,7 @@ public class EstablecimientoConfiguracionService {
         establecimiento.setZonaHoraria(zona);
         establecimiento.setCreadoAt(clock.instant().truncatedTo(ChronoUnit.MICROS));
         entityManager.persist(establecimiento);
-        try {
-            entityManager.flush();
-        } catch (DataIntegrityViolationException e) {
-            // Another request took the slug between the check and the insert.
-            throw ApiException.conflict("SLUG_TAKEN", "The QR slug '" + slug + "' is already in use");
-        }
+        entityManager.flush();
 
         publicarCambio(establecimiento, List.of("nombre", "qr_slug", "zona_horaria", "activo"));
         return EstablecimientoResponse.de(establecimiento);

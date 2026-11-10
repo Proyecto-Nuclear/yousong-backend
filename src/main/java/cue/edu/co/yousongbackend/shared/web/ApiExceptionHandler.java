@@ -1,5 +1,6 @@
 package cue.edu.co.yousongbackend.shared.web;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -25,10 +26,12 @@ class ApiExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> handle(MethodArgumentNotValidException exception) {
-        List<Map<String, String>> errors = exception.getBindingResult().getFieldErrors().stream()
-                .map(error -> Map.of("field", error.getField(),
-                        "message", String.valueOf(error.getDefaultMessage())))
-                .toList();
+        List<Map<String, String>> errors = new ArrayList<>();
+        exception.getBindingResult().getFieldErrors().forEach(error -> errors.add(
+                Map.of("field", error.getField(), "message", String.valueOf(error.getDefaultMessage()))));
+        // Rules that involve several fields (class-level constraints) have no single field: report the object.
+        exception.getBindingResult().getGlobalErrors().forEach(error -> errors.add(
+                Map.of("field", error.getObjectName(), "message", String.valueOf(error.getDefaultMessage()))));
         ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request has invalid fields");
         problem.setProperty("errors", errors);
         return ResponseEntity.badRequest().body(problem);

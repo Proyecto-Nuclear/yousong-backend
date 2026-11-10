@@ -65,7 +65,9 @@ public class ListaDefectoService {
         String nombre = request.nombre() == null || request.nombre().isBlank() ? NOMBRE_POR_DEFECTO : request.nombre().strip();
         PoliticaRotacion politica = request.politicaRotacion() == null ? PoliticaRotacion.SECUENCIAL : request.politicaRotacion();
 
-        for (String videoId : videoIds) {
+        // Always in the same (sorted) order: two publications that share new songs but list them in opposite
+        // orders would otherwise wait for each other's uncommitted rows and deadlock.
+        for (String videoId : videoIds.stream().sorted().toList()) {
             canciones.registrarSiNoExiste(UUID.randomUUID(), videoId);
         }
         Map<String, Cancion> porVideo = canciones.findByYoutubeVideoIdIn(videoIds).stream()

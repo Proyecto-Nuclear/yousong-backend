@@ -177,6 +177,44 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     }
 
     @Test
+    void twoEstablishmentsPublishingTheSameNewSongsInOppositeOrderNeverDeadlock() throws Exception {
+        for (int ronda = 0; ronda < 4; ronda++) {
+            Local a = establecimiento();
+            Local b = establecimiento();
+            List<String> ids = new ArrayList<>();
+            for (int i = 0; i < 60; i++) {
+                ids.add(videoIdAleatorio());
+            }
+            List<String> alReves = new ArrayList<>(ids);
+            java.util.Collections.reverse(alReves);
+            String cuerpoA = cuerpo(null, null, ids.toArray(String[]::new));
+            String cuerpoB = cuerpo(null, null, alReves.toArray(String[]::new));
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            CountDownLatch listos = new CountDownLatch(2);
+            CountDownLatch salida = new CountDownLatch(1);
+            try {
+                Future<Integer> fa = pool.submit(() -> {
+                    listos.countDown();
+                    salida.await();
+                    return publicarComoAdmin(a, cuerpoA).statusCode();
+                });
+                Future<Integer> fb = pool.submit(() -> {
+                    listos.countDown();
+                    salida.await();
+                    return publicarComoAdmin(b, cuerpoB).statusCode();
+                });
+                listos.await();
+                salida.countDown();
+                assertThat(fa.get()).as("ascending publisher, round " + ronda).isEqualTo(201);
+                assertThat(fb.get()).as("descending publisher, round " + ronda).isEqualTo(201);
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     void aSessionKeepsItsListWhileTheNextSessionUsesTheNewVersion() {
         Local local = establecimiento();
         JsonNode v1 = json(publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio())));

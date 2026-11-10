@@ -4,7 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import cue.edu.co.yousongbackend.support.ApiIntegrationTest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
@@ -133,6 +140,62 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
         assertThat(post(ADMIN, null, nombre).statusCode()).isEqualTo(401);
     }
 
+    // ---------- races ----------
+
+    /** Fires the same call from several threads at the same moment and returns every response. */
+    private List<HttpResponse<String>> enParalelo(int hilos, Callable<HttpResponse<String>> llamada) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(hilos);
+        CountDownLatch listos = new CountDownLatch(hilos);
+        CountDownLatch salida = new CountDownLatch(1);
+        try {
+            List<Future<HttpResponse<String>>> futuros = new ArrayList<>();
+            for (int i = 0; i < hilos; i++) {
+                futuros.add(pool.submit(() -> {
+                    listos.countDown();
+                    salida.await();
+                    return llamada.call();
+                }));
+            }
+            listos.await();
+            salida.countDown();
+            List<HttpResponse<String>> respuestas = new ArrayList<>();
+            for (Future<HttpResponse<String>> futuro : futuros) {
+                respuestas.add(futuro.get());
+            }
+            return respuestas;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentCreationsWithTheSameNameAllSucceedWithDistinctSlugs() throws Exception {
+        String nombre = "Carrera " + unico();
+
+        List<HttpResponse<String>> respuestas = enParalelo(6, () -> crear("{\"nombre\":\"" + nombre + "\"}"));
+
+        assertThat(respuestas).extracting(HttpResponse::statusCode).containsOnly(201);
+        assertThat(respuestas).extracting(r -> json(r).get("qrSlug").asString()).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void concurrentCreationsWithTheSameExplicitSlugCreateExactlyOne() throws Exception {
+        String slug = "carrera-" + unico();
+
+        List<HttpResponse<String>> respuestas = enParalelo(6,
+                () -> crear("{\"nombre\":\"Misma direccion\",\"qrSlug\":\"" + slug + "\"}"));
+
+        assertThat(respuestas).extracting(HttpResponse::statusCode).filteredOn(c -> c == 201).hasSize(1);
+        // Every loser is told the address is taken; none of them gets a server error.
+        assertThat(respuestas).filteredOn(r -> r.statusCode() != 201)
+                .allSatisfy(r -> {
+                    assertThat(r.statusCode()).isEqualTo(409);
+                    assertThat(code(r)).isEqualTo("SLUG_TAKEN");
+                });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM operacion.establecimiento WHERE qr_slug = ?", Integer.class, slug))
+                .isEqualTo(1);
+    }
+
     // ---------- read ----------
 
     @Test
@@ -220,8 +283,8 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     @Test
     void eachUpdateRecordsTheNextConfigurationEventVersion() {
         String id = crearOk("Versiones " + unico());
-        patch(ADMIN + "/" + id, adminToken(), "{\"nombre\":\"Dos\"}");
-        patch(ADMIN + "/" + id, adminToken(), "{\"zonaHoraria\":\"Europe/Madrid\"}");
+        assertThat(patch(ADMIN + "/" + id, adminToken(), "{\"nombre\":\"Dos\"}").statusCode()).isEqualTo(200);
+        assertThat(patch(ADMIN + "/" + id, adminToken(), "{\"zonaHoraria\":\"Europe/Madrid\"}").statusCode()).isEqualTo(200);
 
         assertThat(jdbc.queryForList("""
                 SELECT agregado_version FROM integracion.evento_outbox
@@ -229,7 +292,7 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
                 """, Long.class, id)).containsExactly(1L, 2L, 3L);
         assertThat(jdbc.queryForObject("""
                 SELECT payload -> 'field_codes' FROM integracion.evento_outbox
-                WHERE agregado_id = ?::uuid AND agregado_version = 2
+                WHERE agregado_id = ?::uuid AND event_type = 'configuration.changed' AND agregado_version = 2
                 """, String.class, id)).contains("nombre").doesNotContain("zona_horaria");
     }
 
