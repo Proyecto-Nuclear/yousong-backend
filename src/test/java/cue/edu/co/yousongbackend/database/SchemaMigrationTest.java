@@ -28,7 +28,7 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void createsTwoHundredFiftyThreeColumns() {
+    void createsTwoHundredFiftyFiveColumns() {
         Integer columns = jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns c
                 JOIN information_schema.tables t
@@ -36,7 +36,7 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
                 WHERE t.table_type = 'BASE TABLE'
                   AND c.table_schema IN ('operacion', 'integracion', 'analitica')
                 """, Integer.class);
-        assertThat(columns).isEqualTo(253);
+        assertThat(columns).isEqualTo(255);
     }
 
     // ---------- integrity rules ----------

@@ -31,6 +31,10 @@ public class SesionAcceso {
     @Column(name = "dispositivo_id")
     private UUID dispositivoId;
 
+    /** The participation a participant credential opens; {@code null} for staff credentials. */
+    @Column(name = "participacion_id")
+    private UUID participacionId;
+
     @Column(name = "familia_id", nullable = false)
     private UUID familiaId;
 

@@ -12,8 +12,13 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-/** Maps operacion.dispositivo. */
+/**
+ * Maps operacion.dispositivo: a technical context with expiry and revocation, identified only by the SHA-256
+ * of an opaque random secret the client keeps. No MAC, IMEI, IP, user agent or fingerprint is stored.
+ */
 @Entity
 @Table(schema = "operacion", name = "dispositivo")
 @Getter
@@ -45,4 +50,9 @@ public class Dispositivo {
 
     @Column(name = "revocado_at")
     private Instant revocadoAt;
+
+    /** Lowercase hex SHA-256 of the device secret; {@code null} for devices that can never be identified again. */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "credencial_hash", length = 64, unique = true)
+    private String credencialHash;
 }
