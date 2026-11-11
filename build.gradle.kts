@@ -40,6 +40,9 @@ dependencies {
     // QR codes for session access
     implementation("com.google.zxing:core:3.5.4")
 
+    // In-memory caches with expiry (YouTube search results, rate limiting)
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
