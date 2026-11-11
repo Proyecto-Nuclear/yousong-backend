@@ -1,7 +1,10 @@
 package cue.edu.co.yousongbackend.repertorio;
 
 import cue.edu.co.yousongbackend.catalogo.Cancion;
+import cue.edu.co.yousongbackend.catalogo.ArtistaDesdeCanal;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
+import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
+import cue.edu.co.yousongbackend.catalogo.VideoYoutube;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
 import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
 import cue.edu.co.yousongbackend.integracion.EventoOutboxPublisher;
@@ -20,7 +23,9 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The default list an establishment plays when nobody has requested anything.
@@ -40,26 +45,40 @@ public class ListaDefectoService {
     private final CancionRepository canciones;
     private final EstablecimientoService establecimientos;
     private final EventoOutboxPublisher eventos;
+    private final MetadatosCancionService metadatos;
     private final EntityManager entityManager;
+    private final TransactionTemplate transaccion;
     private final Clock clock;
 
     ListaDefectoService(ListaDefectoRepository listas, ItemListaRepository items, CancionRepository canciones,
                         EstablecimientoService establecimientos, EventoOutboxPublisher eventos,
-                        EntityManager entityManager, Clock clock) {
+                        MetadatosCancionService metadatos, EntityManager entityManager,
+                        PlatformTransactionManager transactionManager, Clock clock) {
         this.listas = listas;
         this.items = items;
         this.canciones = canciones;
         this.establecimientos = establecimientos;
         this.eventos = eventos;
+        this.metadatos = metadatos;
         this.entityManager = entityManager;
+        this.transaccion = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
 
-    @Transactional
+    /**
+     * Not transactional itself: the provider is asked for song metadata FIRST, with no transaction open and
+     * no row locked (a slow YouTube must never hold the establishment lock), and only then does one short
+     * transaction write the new version together with that metadata.
+     */
     public ListaDefectoResponse publicar(UUID establecimientoId, PublicarListaDefectoRequest request) {
-        // Validate everything before writing anything, then serialize publications of this establishment
-        // so two concurrent ones get consecutive versions.
         List<String> videoIds = validarCanciones(request.canciones());
+        Map<String, VideoYoutube> conMetadatos = metadatos.consultar(videoIds);
+        return transaccion.execute(estado -> publicarVersion(establecimientoId, request, videoIds, conMetadatos));
+    }
+
+    private ListaDefectoResponse publicarVersion(UUID establecimientoId, PublicarListaDefectoRequest request,
+                                                 List<String> videoIds, Map<String, VideoYoutube> conMetadatos) {
+        // Serialize publications of this establishment so two concurrent ones get consecutive versions.
         establecimientos.obtenerBloqueando(establecimientoId);
 
         String nombre = request.nombre() == null || request.nombre().isBlank() ? NOMBRE_POR_DEFECTO : request.nombre().strip();
@@ -70,6 +89,7 @@ public class ListaDefectoService {
         for (String videoId : videoIds.stream().sorted().toList()) {
             canciones.registrarSiNoExiste(UUID.randomUUID(), videoId);
         }
+        metadatos.guardar(conMetadatos);
         Map<String, Cancion> porVideo = canciones.findByYoutubeVideoIdIn(videoIds).stream()
                 .collect(Collectors.toMap(Cancion::getYoutubeVideoId, c -> c));
 
@@ -133,7 +153,9 @@ public class ListaDefectoService {
         List<ItemListaResponse> detalle = elementos.stream().map(item -> {
             Cancion cancion = porId.get(item.getCancionId());
             return new ItemListaResponse(item.getPosicion(), cancion.getId(), cancion.getYoutubeVideoId(),
-                    cancion.getTitulo(), cancion.getArtistaVerificado());
+                    cancion.getTitulo(), ArtistaDesdeCanal.etiqueta(cancion.getArtistaVerificado(), cancion.getCanalTitulo()),
+                    ArtistaDesdeCanal.verificado(cancion.getArtistaVerificado()), cancion.getCanalTitulo(),
+                    cancion.getDuracionProveedorS(), cancion.getMiniaturaUrl());
         }).toList();
         return new ListaDefectoResponse(lista.getId(), lista.getNombre(), lista.getVersion(),
                 lista.getPoliticaRotacion(), lista.getCreadoAt(), detalle);

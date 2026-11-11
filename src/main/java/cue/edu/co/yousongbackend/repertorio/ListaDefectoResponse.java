@@ -13,12 +13,20 @@ public record ListaDefectoResponse(
         Instant creadoAt,
         List<ItemListaResponse> canciones) {
 
-    /** A song of the list. Title and artist are null until the catalog has enriched the video. */
+    /**
+     * A song of the list. Everything but the ids is null until the catalog has enriched the video.
+     * {@code artista} is a display label (the verified artist, or derived from the channel);
+     * {@code artistaVerificado} is true only when the song has a verified artist.
+     */
     public record ItemListaResponse(
             int posicion,
             UUID cancionId,
             String youtubeVideoId,
             String titulo,
-            String artistaVerificado) {
+            String artista,
+            boolean artistaVerificado,
+            String canal,
+            Integer duracionSegundos,
+            String miniaturaUrl) {
     }
 }

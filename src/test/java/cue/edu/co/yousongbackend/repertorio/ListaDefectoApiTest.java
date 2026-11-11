@@ -109,7 +109,8 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
         JsonNode canciones = json(publicarComoAdmin(establecimiento(), cuerpo(null, null, videoConocido, videoNuevo))).get("canciones");
 
         assertThat(canciones.get(0).get("titulo").asString()).isEqualTo("Un titulo");
-        assertThat(canciones.get(0).get("artistaVerificado").asString()).isEqualTo("Un artista");
+        assertThat(canciones.get(0).get("artista").asString()).isEqualTo("Un artista");
+        assertThat(canciones.get(0).get("artistaVerificado").asBoolean()).isTrue();
         assertThat(canciones.get(1).get("titulo").isNull()).isTrue();
         assertThat(jdbc.queryForObject("SELECT disponibilidad FROM operacion.cancion WHERE youtube_video_id = ?",
                 String.class, videoNuevo)).isEqualTo("DESCONOCIDA");

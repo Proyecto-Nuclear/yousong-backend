@@ -1,5 +1,6 @@
 package cue.edu.co.yousongbackend.catalogo;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -21,4 +22,17 @@ public interface CancionRepository extends JpaRepository<Cancion, UUID> {
     @Query(value = "insert into operacion.cancion (id, youtube_video_id) values (:id, :videoId) "
             + "on conflict (youtube_video_id) do nothing", nativeQuery = true)
     void registrarSiNoExiste(@Param("id") UUID id, @Param("videoId") String videoId);
+
+    /**
+     * Stores what the provider said about a video. A bulk update on purpose: callers run it for ids in
+     * sorted order so concurrent publications lock the rows in the same order (song has no {@code @Version}).
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("update Cancion c set c.titulo = :titulo, c.miniaturaUrl = :miniatura, c.duracionProveedorS = :duracion, "
+            + "c.canalTitulo = :canal, c.disponibilidad = :disponibilidad, c.validadoAt = :validadoAt, "
+            + "c.metadatosExpiranAt = :expiraAt where c.youtubeVideoId = :videoId")
+    int actualizarMetadatos(@Param("videoId") String videoId, @Param("titulo") String titulo,
+                            @Param("miniatura") String miniatura, @Param("duracion") Integer duracion,
+                            @Param("canal") String canal, @Param("disponibilidad") Disponibilidad disponibilidad,
+                            @Param("validadoAt") Instant validadoAt, @Param("expiraAt") Instant expiraAt);
 }
