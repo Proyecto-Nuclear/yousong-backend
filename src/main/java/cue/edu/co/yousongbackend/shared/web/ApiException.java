@@ -21,6 +21,14 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message);
     }
 
+    public static ApiException unauthorized(String code, String message) {
+        return new ApiException(HttpStatus.UNAUTHORIZED, code, message);
+    }
+
+    public static ApiException serviceUnavailable(String code, String message) {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, code, message);
+    }
+
     public static ApiException notFound(String code, String message) {
         return new ApiException(HttpStatus.NOT_FOUND, code, message);
     }
