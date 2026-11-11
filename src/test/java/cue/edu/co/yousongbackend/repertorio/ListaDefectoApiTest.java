@@ -386,6 +386,6 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
         HttpResponse<String> opened = post("/api/admin/establecimientos/" + id + "/sesiones", adminToken());
         assertThat(opened.statusCode()).as(opened.body()).isEqualTo(201);
         assertThat(json(get("/api/admin/establecimientos/" + id + "/qr", adminToken())).get("url").asString())
-                .contains("/s/" + slug + "/");
+                .isEqualTo(PUBLIC_BASE_URL + "/s/" + slug);
     }
 }
