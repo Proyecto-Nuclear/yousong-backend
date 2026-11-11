@@ -119,4 +119,17 @@ class ParticipantePresupuestoBusquedaApiTest extends ParticipanteApiTestSupport 
         assertThat(buscar(consultaNueva(), token).statusCode()).isEqualTo(200);
         assertThat(buscar(consultaNueva(), token).statusCode()).isEqualTo(429);
     }
+    @Test
+    void searchesThatFailAtTheProviderDoNotConsumeTheEstablishmentBudget() {
+        Local local = localAbierto();
+        YOUTUBE.script("/search", 500, LocalYoutubeServer.errorJson(500, "backendError"));
+        for (int i = 0; i < 6; i++) {
+            assertThat(buscar(consultaNueva(), unirse(local)).statusCode()).as("failed search " + i).isEqualTo(503);
+        }
+        String id = videoIdAleatorio();
+        YOUTUBE.register(LocalYoutubeServer.video(id));
+        YOUTUBE.script("/search", 200, LocalYoutubeServer.searchJson(null, id));
+
+        agotarPresupuesto(local);
+    }
 }

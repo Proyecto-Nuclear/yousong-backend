@@ -113,4 +113,29 @@ class CuotaYoutubeTest {
         assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).isNull();
         assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).isNull();
     }
+    @Test
+    void aRefundGivesBackTheUnitsToEveryCounter() {
+        CuotaYoutube cuota = cuota(1000, 0.5, BUSQUEDA);
+        var dia = cuota.reservar(LOCAL_A, BUSQUEDA);
+        assertThat(rechazo(() -> cuota.reservar(LOCAL_A, 1))).isEqualTo(YoutubeException.Tipo.BUDGET_EXHAUSTED);
+
+        cuota.devolver(LOCAL_A, dia, BUSQUEDA);
+
+        assertThat(cuota.usadas()).isZero();
+        assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).isNull();
+    }
+
+    @Test
+    void aRefundNeverGoesBelowZeroNorCrossesTheMidnightReset() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000);
+        var dia = cuota.reservar(LOCAL_A, BUSQUEDA);
+        reloj.ahora = reloj.ahora.plusSeconds(2 * 24 * 3600);
+        cuota.reservar(LOCAL_A, BUSQUEDA);
+
+        cuota.devolver(LOCAL_A, dia, BUSQUEDA);
+
+        assertThat(cuota.usadas()).as("the refund belongs to the previous day").isEqualTo(BUSQUEDA);
+        cuota.devolver(LOCAL_A, cuota.reservar(LOCAL_B, 1), 5_000);
+        assertThat(cuota.usadas()).isZero();
+    }
 }

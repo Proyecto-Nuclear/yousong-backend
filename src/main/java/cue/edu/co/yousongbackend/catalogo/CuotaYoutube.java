@@ -63,10 +63,11 @@ public class CuotaYoutube {
      * Charges a participant search up front, before any provider call, so concurrent requests cannot overshoot.
      * Nothing is charged when it is refused.
      *
+     * @return the quota day the units were charged to, to hand back to {@link #devolver} if the call fails
      * @throws YoutubeException {@code QUOTA_EXCEEDED} when the quota or the participant share would be passed,
      *                          {@code BUDGET_EXHAUSTED} when the establishment's daily budget would be passed
      */
-    public synchronized void reservar(UUID establecimientoId, int unidades) {
+    public synchronized LocalDate reservar(UUID establecimientoId, int unidades) {
         rotar();
         if (agotada || usadas + unidades > limite || usadasParticipantes + unidades > limiteParticipantes) {
             throw new YoutubeException(Tipo.QUOTA_EXCEEDED);
@@ -78,6 +79,21 @@ public class CuotaYoutube {
         usadasPorLocal.put(establecimientoId, delLocal + unidades);
         usadasParticipantes += unidades;
         usadas += unidades;
+        return dia;
+    }
+
+    /**
+     * Gives back reserved units that the provider did not spend (the call failed, or fewer details were needed).
+     * Ignored when the quota day already rolled over, so a refund never reduces the next day's count.
+     */
+    public synchronized void devolver(UUID establecimientoId, LocalDate diaReserva, int unidades) {
+        rotar();
+        if (!diaReserva.equals(dia) || unidades <= 0) {
+            return;
+        }
+        usadas = Math.max(0, usadas - unidades);
+        usadasParticipantes = Math.max(0, usadasParticipantes - unidades);
+        usadasPorLocal.computeIfPresent(establecimientoId, (id, usado) -> Math.max(0, usado - unidades));
     }
 
     /** Units counted today (for tests and diagnostics). */

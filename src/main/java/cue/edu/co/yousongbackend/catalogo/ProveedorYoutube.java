@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import cue.edu.co.yousongbackend.catalogo.YoutubeException.Tipo;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -52,21 +53,50 @@ public class ProveedorYoutube {
         String clave = consulta.toLowerCase(Locale.ROOT) + "\u0000" + (pagina == null ? "" : pagina);
         PaginaIds cacheada = busquedas.getIfPresent(clave);
         boolean reservada = !origen.esStaff();
+        LocalDate dia = null;
+        int lotes = 0;
         if (reservada) {
-            int lotes = YoutubeClient.lotes(cacheada == null ? propiedades.maxResults() : cacheada.videoIds().size());
+            lotes = YoutubeClient.lotes(cacheada == null ? propiedades.maxResults() : cacheada.videoIds().size());
             int busqueda = cacheada == null ? CuotaYoutube.COSTO_BUSQUEDA : 0;
-            cuota.reservar(origen.establecimientoId(), busqueda + CuotaYoutube.COSTO_DETALLES * lotes);
+            dia = cuota.reservar(origen.establecimientoId(), busqueda + CuotaYoutube.COSTO_DETALLES * lotes);
         }
         PaginaIds ids = cacheada;
         if (ids == null) {
-            ids = ejecutar(reservada ? 0 : CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
+            try {
+                ids = ejecutar(reservada ? 0 : CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
+            } catch (YoutubeException e) {
+                // Nothing came back: the whole reservation is returned, so a degraded provider cannot burn the budget.
+                if (reservada) {
+                    cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_BUSQUEDA + CuotaYoutube.COSTO_DETALLES * lotes);
+                }
+                throw e;
+            }
             busquedas.put(clave, ids);
         }
         if (ids.videoIds().isEmpty()) {
+            if (reservada) {
+                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * lotes);
+            }
             return new PaginaVideos(List.of(), ids.siguientePagina());
         }
         List<String> videoIds = ids.videoIds();
-        List<VideoYoutube> videos = reservada ? ejecutar(0, () -> cliente.obtener(videoIds)) : detalles(videoIds);
+        List<VideoYoutube> videos;
+        if (reservada) {
+            int reservadosDetalles = lotes;
+            int necesarios = YoutubeClient.lotes(videoIds.size());
+            if (necesarios < reservadosDetalles) {
+                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * (reservadosDetalles - necesarios));
+            }
+            try {
+                videos = ejecutar(0, () -> cliente.obtener(videoIds));
+            } catch (YoutubeException e) {
+                // The search itself was really spent (it is cached); only the details call is returned.
+                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * necesarios);
+                throw e;
+            }
+        } else {
+            videos = detalles(videoIds);
+        }
         return new PaginaVideos(videos, ids.siguientePagina());
     }
 
