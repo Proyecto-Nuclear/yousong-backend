@@ -25,6 +25,10 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.UNAUTHORIZED, code, message);
     }
 
+    public static ApiException tooManyRequests(String code, String message) {
+        return new ApiException(HttpStatus.TOO_MANY_REQUESTS, code, message);
+    }
+
     public static ApiException serviceUnavailable(String code, String message) {
         return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, code, message);
     }
