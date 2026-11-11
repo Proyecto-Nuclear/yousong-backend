@@ -38,6 +38,7 @@ public final class LocalYoutubeServer {
     private final List<Recibida> recibidas = new CopyOnWriteArrayList<>();
     private final Map<String, Respuesta> guiones = new ConcurrentHashMap<>();
     private final Map<String, Long> demoras = new ConcurrentHashMap<>();
+    private final Map<String, Long> demorasPorConsulta = new ConcurrentHashMap<>();
     private final Map<String, String> videos = new ConcurrentHashMap<>();
 
     public LocalYoutubeServer() {
@@ -74,6 +75,11 @@ public final class LocalYoutubeServer {
         demoras.put(path, millis);
     }
 
+    /** Waits this long before answering requests to the path whose {@code q} parameter is exactly this query. */
+    public void delay(String path, String query, long millis) {
+        demorasPorConsulta.put(path + "\u0000" + query, millis);
+    }
+
     /** Registers a video that {@code /videos} knows. */
     public void register(Video video) {
         videos.put(video.id, video.json());
@@ -83,6 +89,7 @@ public final class LocalYoutubeServer {
     public void reset() {
         guiones.clear();
         demoras.clear();
+        demorasPorConsulta.clear();
         videos.clear();
         recibidas.clear();
     }
@@ -242,6 +249,10 @@ public final class LocalYoutubeServer {
         recibidas.add(new Recibida(path, query));
         try {
             Long demora = demoras.get(path);
+            Long demoraConsulta = demorasPorConsulta.get(path + "\u0000" + query.get("q"));
+            if (demoraConsulta != null) {
+                demora = demoraConsulta;
+            }
             if (demora != null) {
                 Thread.sleep(demora);
             }

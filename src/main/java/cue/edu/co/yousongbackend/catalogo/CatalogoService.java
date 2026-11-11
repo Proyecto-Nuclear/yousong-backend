@@ -46,15 +46,19 @@ public class CatalogoService {
         String token = token(pagina);
         String clave = texto.toLowerCase(Locale.ROOT) + "\u0000" + (token == null ? "" : token);
 
-        PaginaVideos resultado = cache.get(clave, k -> {
+        // Never fetch inside a Caffeine compute: it holds a bin lock, so a slow provider would block other
+        // queries. Check, fetch outside, then store (two identical concurrent misses may both fetch).
+        PaginaVideos resultado = cache.getIfPresent(clave);
+        if (resultado == null) {
             try {
                 PaginaVideos pagina1 = proveedor.buscar(texto, token);
                 List<VideoYoutube> disponibles = pagina1.videos().stream().filter(VideoYoutube::disponible).toList();
-                return new PaginaVideos(disponibles, pagina1.siguientePagina());
+                resultado = new PaginaVideos(disponibles, pagina1.siguientePagina());
             } catch (YoutubeException e) {
                 throw e.aApi();
             }
-        });
+            cache.put(clave, resultado);
+        }
         return respuesta(resultado);
     }
 
