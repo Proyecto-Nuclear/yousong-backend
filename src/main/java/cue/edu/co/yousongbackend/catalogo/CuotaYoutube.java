@@ -41,6 +41,12 @@ public class CuotaYoutube {
         usadas += unidades;
     }
 
+    /** Units counted today (for tests and diagnostics). */
+    synchronized int usadas() {
+        rotar();
+        return usadas;
+    }
+
     /** The provider said the quota is gone: no more calls until the next reset. */
     public synchronized void agotar() {
         rotar();

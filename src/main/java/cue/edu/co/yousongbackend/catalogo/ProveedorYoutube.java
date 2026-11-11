@@ -1,14 +1,22 @@
 package cue.edu.co.yousongbackend.catalogo;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import cue.edu.co.yousongbackend.catalogo.YoutubeException.Tipo;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 /**
  * The only way the application talks to YouTube: refuses when the catalog is not configured or the daily
  * quota is gone (without touching the network), counts the units it spends, and remembers when the provider
  * itself reports the quota exhausted. Throws {@link YoutubeException}.
+ *
+ * <p>The search step (the 100-unit search.list) is cached on its own, so when videos.list fails a retry
+ * repeats only the 1-unit details call. Nothing here runs inside a cache compute: provider calls happen
+ * outside, and the result is stored afterwards.
  */
 @Component
 public class ProveedorYoutube {
@@ -16,17 +24,27 @@ public class ProveedorYoutube {
     private final YoutubeClient cliente;
     private final YoutubeProperties propiedades;
     private final CuotaYoutube cuota;
+    private final Cache<String, PaginaIds> busquedas;
 
     ProveedorYoutube(YoutubeClient cliente, YoutubeProperties propiedades, CuotaYoutube cuota) {
         this.cliente = cliente;
         this.propiedades = propiedades;
         this.cuota = cuota;
+        this.busquedas = Caffeine.newBuilder()
+                .maximumSize(500)
+                .expireAfterWrite(Duration.ofMinutes(propiedades.searchCacheMinutes()))
+                .build();
     }
 
     /** search.list followed by videos.list: every match with its details, unavailable ones included. */
     public PaginaVideos buscar(String consulta, String pagina) {
         permitir();
-        PaginaIds ids = ejecutar(CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
+        String clave = consulta.toLowerCase(Locale.ROOT) + "\u0000" + (pagina == null ? "" : pagina);
+        PaginaIds ids = busquedas.getIfPresent(clave);
+        if (ids == null) {
+            ids = ejecutar(CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
+            busquedas.put(clave, ids);
+        }
         if (ids.videoIds().isEmpty()) {
             return new PaginaVideos(List.of(), ids.siguientePagina());
         }
