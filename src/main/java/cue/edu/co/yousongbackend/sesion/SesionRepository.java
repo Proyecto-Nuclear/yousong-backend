@@ -17,4 +17,14 @@ public interface SesionRepository extends JpaRepository<Sesion, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Sesion s where s.id = :id")
     Optional<Sesion> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * Shared row lock ({@code FOR SHARE}) on the session in operation: many joins may hold it at once, but a
+     * close ({@link #findByIdForUpdate}) waits for them, and a join that waited for a close sees it closed
+     * (PostgreSQL re-checks the condition on the updated row), so the two can never interleave.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select s from Sesion s where s.establecimientoId = :establecimientoId and s.estado in :estados")
+    Optional<Sesion> findEnOperacionForShare(@Param("establecimientoId") UUID establecimientoId,
+                                             @Param("estados") Collection<EstadoSesion> estados);
 }
