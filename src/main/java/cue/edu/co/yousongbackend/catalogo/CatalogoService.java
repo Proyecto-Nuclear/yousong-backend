@@ -19,10 +19,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class CatalogoService {
 
-    private static final int CONSULTA_MINIMA = 2;
-    private static final int CONSULTA_MAXIMA = 100;
     private static final Pattern PAGINA = Pattern.compile("[A-Za-z0-9_=-]{1,100}");
-    private static final Pattern ESPACIOS = Pattern.compile("\\s+");
 
     private final ProveedorYoutube proveedor;
     private final CancionRepository canciones;
@@ -50,7 +47,7 @@ public class CatalogoService {
      * @param origen   staff, or the participant's establishment (bounded by its share and daily budget)
      */
     public BusquedaResponse buscar(String consulta, String pagina, OrigenBusqueda origen) {
-        String texto = normalizar(consulta);
+        String texto = ConsultaCatalogo.normalizar(consulta);
         String token = token(pagina);
         String clave = texto.toLowerCase(Locale.ROOT) + "\u0000" + (token == null ? "" : token);
 
@@ -83,15 +80,6 @@ public class CatalogoService {
                     video.canal(), video.duracionSegundos(), video.miniaturaUrl());
         }).toList();
         return new BusquedaResponse(resultados, pagina.siguientePagina());
-    }
-
-    private static String normalizar(String consulta) {
-        String texto = consulta == null ? "" : ESPACIOS.matcher(consulta.strip()).replaceAll(" ");
-        if (texto.length() < CONSULTA_MINIMA || texto.length() > CONSULTA_MAXIMA) {
-            throw ApiException.badRequest("INVALID_QUERY",
-                    "The query must have between " + CONSULTA_MINIMA + " and " + CONSULTA_MAXIMA + " characters");
-        }
-        return texto;
     }
 
     private static String token(String pagina) {
