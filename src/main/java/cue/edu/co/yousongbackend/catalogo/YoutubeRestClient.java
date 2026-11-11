@@ -120,8 +120,9 @@ class YoutubeRestClient implements YoutubeClient {
     private static YoutubeException errorDelProveedor(int estado, String cuerpo) {
         String razon = razon(cuerpo);
         log.warn("YouTube API answered HTTP {} (reason: {})", estado, razon);
-        boolean cuota = estado == 403 && ("quotaExceeded".equals(razon) || "dailyLimitExceeded".equals(razon)
-                || "rateLimitExceeded".equals(razon));
+        // Only the daily reasons latch the exhaustion; rateLimitExceeded is a transient short-window limit
+        // that fails this call alone (it is logged above with its reason and maps to UNAVAILABLE).
+        boolean cuota = estado == 403 && ("quotaExceeded".equals(razon) || "dailyLimitExceeded".equals(razon));
         return new YoutubeException(cuota ? Tipo.QUOTA_EXCEEDED : Tipo.UNAVAILABLE);
     }
 
