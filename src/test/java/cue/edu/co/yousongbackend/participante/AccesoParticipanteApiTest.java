@@ -114,7 +114,7 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
     // ---------- leaving ----------
 
     @Test
-    void leavingRevokesTheCredentialAndTheDevice() {
+    void leavingRevokesTheCredentialButKeepsTheDevice() {
         Local local = localAbierto();
         String token = unirse(local);
         String otro = unirse(local);
@@ -125,9 +125,10 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
         assertCredencialRechazada(get(MI_SESION, token), "INVALID_CREDENTIAL");
         assertCredencialRechazada(delete(MI_SESION, token), "INVALID_CREDENTIAL");
         assertThat(get(MI_SESION, otro).statusCode()).isEqualTo(200);
+        // The device survives leaving, so the same phone gets its participation back if it returns.
         assertThat(contar("SELECT count(*) FROM operacion.dispositivo d JOIN operacion.participacion p "
                 + "ON p.dispositivo_id = d.id JOIN operacion.sesion s ON s.id = p.sesion_id "
-                + "WHERE s.establecimiento_id = ? AND d.revocado_at IS NOT NULL", local.id())).isEqualTo(1);
+                + "WHERE s.establecimiento_id = ? AND d.revocado_at IS NOT NULL", local.id())).isZero();
     }
 
     // ---------- the session ends ----------
@@ -150,8 +151,9 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
         assertThat(contar("SELECT count(*) FROM operacion.sesion_acceso a JOIN operacion.participacion p "
                 + "ON p.dispositivo_id = a.dispositivo_id WHERE p.sesion_id = ? AND a.revocada_at IS NULL", sesionId))
                 .isZero();
+        // Devices survive the close: only the credentials end, so the phones are recognized next night.
         assertThat(contar("SELECT count(*) FROM operacion.dispositivo d JOIN operacion.participacion p "
-                + "ON p.dispositivo_id = d.id WHERE p.sesion_id = ? AND d.revocado_at IS NULL", sesionId)).isZero();
+                + "ON p.dispositivo_id = d.id WHERE p.sesion_id = ? AND d.revocado_at IS NULL", sesionId)).isEqualTo(2);
         assertThat(contar("SELECT count(*) FROM operacion.sesion_acceso a JOIN operacion.participacion p "
                 + "ON p.dispositivo_id = a.dispositivo_id JOIN operacion.sesion s ON s.id = p.sesion_id "
                 + "WHERE s.establecimiento_id = ? AND a.revocada_at IS NULL", vecino.id())).isEqualTo(1);

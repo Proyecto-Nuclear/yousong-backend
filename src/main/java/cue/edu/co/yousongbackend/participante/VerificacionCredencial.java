@@ -3,7 +3,10 @@ package cue.edu.co.yousongbackend.participante;
 /** Outcome of checking a participant credential. */
 public sealed interface VerificacionCredencial {
 
-    /** The credential is not usable: missing, malformed, unknown, expired or revoked by leaving. */
+    /**
+     * The credential is not usable: missing, malformed, unknown, expired, revoked by leaving or replaced by a
+     * rejoin of the same device, or its device was revoked or expired.
+     */
     String INVALID_CREDENTIAL = "INVALID_CREDENTIAL";
 
     /** The credential belonged to a session that is no longer in operation: the client must forget it. */

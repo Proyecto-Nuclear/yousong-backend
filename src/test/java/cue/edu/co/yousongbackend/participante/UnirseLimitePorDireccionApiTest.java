@@ -53,6 +53,26 @@ class UnirseLimitePorDireccionApiTest extends ParticipanteApiTestSupport {
     }
 
     @Test
+    void rejoinsWithADeviceTokenCountTowardTheAllowance() {
+        Local local = localListoParaAbrir();
+        UUID sesionId = abrirSesion(local);
+        HttpResponse<String> primero = unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false));
+        assertThat(primero.statusCode()).as(primero.body()).isEqualTo(201);
+        String dispositivoToken = json(primero).get("dispositivoToken").asString();
+        for (int i = 0; i < 2; i++) {
+            HttpResponse<String> rejoin = unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false, dispositivoToken));
+            assertThat(rejoin.statusCode()).as(rejoin.body()).isEqualTo(201);
+        }
+        int filas = filasCreadas();
+
+        assertProblema(unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false, dispositivoToken)),
+                429, "RATE_LIMITED");
+
+        assertThat(contar("SELECT count(*) FROM operacion.participacion WHERE sesion_id = ?", sesionId)).isEqualTo(1);
+        assertThat(filasCreadas()).isEqualTo(filas);
+    }
+
+    @Test
     void theAddressAllowanceCoversEveryEstablishment() {
         Local primero = localAbierto();
         Local segundo = localAbierto();

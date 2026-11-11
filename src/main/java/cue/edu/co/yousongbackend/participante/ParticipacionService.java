@@ -3,6 +3,7 @@ package cue.edu.co.yousongbackend.participante;
 import cue.edu.co.yousongbackend.acceso.AccesoParticipantes;
 import cue.edu.co.yousongbackend.acceso.CanalAcceso;
 import cue.edu.co.yousongbackend.acceso.Dispositivo;
+import cue.edu.co.yousongbackend.acceso.DispositivoRepository;
 import cue.edu.co.yousongbackend.acceso.SesionAcceso;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
@@ -25,6 +26,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,11 +39,19 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Joining is anonymous, so it is bounded three ways: joins per minute per client address and per
  * establishment ({@link LimitadorUniones}), and participations per session ({@code app.participante.max-per-session}).
+ *
+ * <p>One device, one participation per session ({@code uq_participacion_sesion_dispositivo}): the first join
+ * mints a device and returns its secret ({@link TokenDispositivo}) once; a later join that presents it gets the
+ * same participation back (with a fresh credential) instead of a second one, also after leaving. The device is
+ * a technical context only: no registration, no personal data, no hardware identifier or fingerprint.
  */
 @Service
 public class ParticipacionService {
 
-    /** A device registration outlives a single credential, but is revoked with its session anyway. */
+    /**
+     * A device outlives its credentials and sessions; every successful identification renews it (sliding), so
+     * a phone that keeps coming back keeps its identity, and one that stops coming is forgotten after this.
+     */
     static final Duration VIGENCIA_DISPOSITIVO = Duration.ofDays(30);
 
     private static final int INTENTOS_SEUDONIMO = 10;
@@ -48,6 +59,7 @@ public class ParticipacionService {
     private final EstablecimientoService establecimientos;
     private final SesionService sesiones;
     private final AccesoParticipantes accesos;
+    private final DispositivoRepository dispositivos;
     private final PoliticaPrivacidad politica;
     private final GeneradorSeudonimos seudonimos;
     private final LimitadorUniones limitador;
@@ -58,7 +70,8 @@ public class ParticipacionService {
     private final int maximoPorSesion;
 
     ParticipacionService(EstablecimientoService establecimientos, SesionService sesiones, AccesoParticipantes accesos,
-                         PoliticaPrivacidad politica, GeneradorSeudonimos seudonimos, LimitadorUniones limitador,
+                         DispositivoRepository dispositivos, PoliticaPrivacidad politica,
+                         GeneradorSeudonimos seudonimos, LimitadorUniones limitador,
                          EntityManager entityManager, JdbcTemplate jdbc, Clock clock,
                          @Value("${app.participante.credential-ttl-hours:24}") long horasCredencial,
                          @Value("${app.participante.max-per-session:5000}") int maximoPorSesion) {
@@ -71,6 +84,7 @@ public class ParticipacionService {
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
         this.accesos = accesos;
+        this.dispositivos = dispositivos;
         this.politica = politica;
         this.seudonimos = seudonimos;
         this.limitador = limitador;
@@ -93,13 +107,20 @@ public class ParticipacionService {
     }
 
     /**
-     * Registers the device, the participation, the consents and the credential in one transaction, while
-     * holding a shared lock on the session so a concurrent close either waits for this join (and then
-     * revokes its credential) or has already committed (and then the join finds no session).
+     * Identifies or registers the device, finds or registers its participation, records the consents and
+     * issues a credential in one transaction, while holding a shared lock on the session so a concurrent close
+     * either waits for this join (and then revokes its credential) or has already committed (and then the
+     * join finds no session).
+     *
+     * <p>A device that already holds a participation in this session gets it back: its previous credentials
+     * are revoked and a fresh one is issued, and no second participation (so no second vote identity) exists.
+     * When two joins of the same device race, {@code uq_participacion_sesion_dispositivo} decides: the loser
+     * waits for the winner and then takes the existing participation.
      *
      * <p>The per-minute limits are checked before the session lock is requested, so a limited client
-     * neither creates rows nor delays a close. The per-session cap is counted under the shared lock; joins
-     * running at the same moment may overshoot it by a few, which is fine for a bound against floods.
+     * neither creates rows nor delays a close; they apply to rejoins too. The per-session cap is counted under
+     * the shared lock and only when a participation is about to be created; joins running at the same moment
+     * may overshoot it by a few, which is fine for a bound against floods.
      *
      * @param direccion the client address, used only as a key of the in-memory limiter (never stored)
      */
@@ -125,36 +146,50 @@ public class ParticipacionService {
         if (sesion.getEstado() == EstadoSesion.PAUSADA) {
             throw ApiException.conflict("SESSION_PAUSED", "The session is paused; try again when it resumes");
         }
-        Integer participaciones = jdbc.queryForObject(
-                "SELECT count(*) FROM operacion.participacion WHERE sesion_id = ?", Integer.class, sesion.getId());
-        if (participaciones != null && participaciones >= maximoPorSesion) {
-            throw ApiException.conflict("SESSION_FULL", "The session has reached its maximum number of participants");
-        }
 
         Instant ahora = clock.instant().truncatedTo(ChronoUnit.MICROS);
         CanalAcceso canal = request.canal();
 
-        Dispositivo dispositivo = new Dispositivo();
-        dispositivo.setId(UUID.randomUUID());
-        dispositivo.setCanal(canal);
-        dispositivo.setCreadoAt(ahora);
-        dispositivo.setUltimoAccesoAt(ahora);
-        dispositivo.setExpiraAt(ahora.plus(VIGENCIA_DISPOSITIVO));
-        entityManager.persist(dispositivo);
-        entityManager.flush();
+        Optional<Dispositivo> conocido = identificar(request.dispositivoToken(), ahora);
+        String dispositivoTokenNuevo = null;
+        Dispositivo dispositivo;
+        if (conocido.isPresent()) {
+            dispositivo = conocido.get();
+        } else {
+            dispositivoTokenNuevo = TokenDispositivo.generar();
+            dispositivo = registrarDispositivo(canal, TokenDispositivo.hash(dispositivoTokenNuevo), ahora);
+        }
 
-        UUID participacionId = UUID.randomUUID();
-        String seudonimo = registrarParticipacion(participacionId, sesion.getId(), dispositivo.getId(), ahora);
+        Ingreso ingreso = conocido.isPresent()
+                ? participacionDe(sesion.getId(), dispositivo.getId()).orElse(null)
+                : null;
+        if (ingreso == null) {
+            verificarCupo(sesion.getId());
+            ingreso = registrarParticipacion(sesion.getId(), dispositivo.getId(), ahora);
+        }
 
-        consentir(participacionId, FinalidadConsentimiento.F1, canal, ahora);
-        if (Boolean.TRUE.equals(request.autorizaF2())) {
-            consentir(participacionId, FinalidadConsentimiento.F2, canal, ahora);
+        if (ingreso.existente()) {
+            accesos.revocarCredencialesDeLaParticipacion(ingreso.id(), ahora);
+        } else {
+            consentir(ingreso.id(), FinalidadConsentimiento.F1, canal, ahora);
+        }
+        if (Boolean.TRUE.equals(request.autorizaF2())
+                && !(ingreso.existente() && autorizada(ingreso.id(), FinalidadConsentimiento.F2))) {
+            consentir(ingreso.id(), FinalidadConsentimiento.F2, canal, ahora);
+        }
+
+        if (conocido.isPresent()) {
+            // Sliding expiry: being identified keeps the device alive. Done last, so racing joins of the
+            // same device are decided by the participation constraint and not by this row lock.
+            dispositivo.setUltimoAccesoAt(ahora);
+            dispositivo.setExpiraAt(ahora.plus(VIGENCIA_DISPOSITIVO));
         }
 
         String token = TokenParticipante.generar();
         SesionAcceso credencial = new SesionAcceso();
         credencial.setId(UUID.randomUUID());
         credencial.setDispositivoId(dispositivo.getId());
+        credencial.setParticipacionId(ingreso.id());
         credencial.setFamiliaId(UUID.randomUUID());
         credencial.setRefreshHash(TokenParticipante.hash(token));
         credencial.setEmitidaAt(ahora);
@@ -162,8 +197,8 @@ public class ParticipacionService {
         entityManager.persist(credencial);
         entityManager.flush();
 
-        return new UnirseResponse(token, credencial.getExpiraAt(), seudonimo, EstadoServicio.ABIERTO,
-                new EstablecimientoResumen(establecimiento.getNombre()));
+        return new UnirseResponse(token, credencial.getExpiraAt(), ingreso.seudonimo(), EstadoServicio.ABIERTO,
+                new EstablecimientoResumen(establecimiento.getNombre()), dispositivoTokenNuevo);
     }
 
     @Transactional(readOnly = true)
@@ -179,31 +214,98 @@ public class ParticipacionService {
                 EstadoServicio.de(sesion.getEstado()), participante.seudonimo());
     }
 
-    /** Leaving voluntarily: the credential and the device stop working; the participation stays as history. */
+    /**
+     * Leaving voluntarily: the credentials of the participation stop working; the participation stays as
+     * history and the device stays valid, so the same phone coming back gets this participation again.
+     */
     @Transactional
     public void salir(ParticipanteAutenticado participante) {
-        accesos.revocarDispositivo(participante.dispositivoId(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+        accesos.revocarCredencialesDeLaParticipacion(participante.participacionId(),
+                clock.instant().truncatedTo(ChronoUnit.MICROS));
+    }
+
+    /** The participation of a join: found again for a known device, or just created. */
+    private record Ingreso(UUID id, String seudonimo, boolean existente) {
     }
 
     /**
-     * Inserts the participation with a random pseudonym, retrying on the rare collision inside the session.
-     * {@code ON CONFLICT DO NOTHING} reports the collision without aborting the transaction. Running out of
-     * retries is a controlled 503: the caller's transaction rolls back, so nothing of the join is kept.
+     * The device a secret identifies, if any. Anything unusable (malformed, unknown, expired, revoked) is
+     * simply "no device", with no error and no hint of why, so the secret cannot be probed.
      */
-    private String registrarParticipacion(UUID id, UUID sesionId, UUID dispositivoId, Instant ahora) {
+    private Optional<Dispositivo> identificar(String dispositivoToken, Instant ahora) {
+        if (!TokenDispositivo.formatoValido(dispositivoToken)) {
+            return Optional.empty();
+        }
+        return dispositivos.buscarVigentePorHash(TokenDispositivo.hash(dispositivoToken), ahora);
+    }
+
+    private Dispositivo registrarDispositivo(CanalAcceso canal, String credencialHash, Instant ahora) {
+        Dispositivo dispositivo = new Dispositivo();
+        dispositivo.setId(UUID.randomUUID());
+        dispositivo.setCanal(canal);
+        dispositivo.setCreadoAt(ahora);
+        dispositivo.setUltimoAccesoAt(ahora);
+        dispositivo.setExpiraAt(ahora.plus(VIGENCIA_DISPOSITIVO));
+        dispositivo.setCredencialHash(credencialHash);
+        entityManager.persist(dispositivo);
+        entityManager.flush();
+        return dispositivo;
+    }
+
+    /**
+     * The participation of the device in the session, locked, so rejoins of one device take turns revoking
+     * and issuing credentials (and exactly one credential stays live).
+     */
+    private Optional<Ingreso> participacionDe(UUID sesionId, UUID dispositivoId) {
+        List<Ingreso> encontradas = jdbc.query("SELECT id, seudonimo FROM operacion.participacion "
+                        + "WHERE sesion_id = ? AND dispositivo_id = ? FOR UPDATE",
+                (fila, n) -> new Ingreso(fila.getObject("id", UUID.class), fila.getString("seudonimo"), true),
+                sesionId, dispositivoId);
+        return encontradas.stream().findFirst();
+    }
+
+    private void verificarCupo(UUID sesionId) {
+        Integer participaciones = jdbc.queryForObject(
+                "SELECT count(*) FROM operacion.participacion WHERE sesion_id = ?", Integer.class, sesionId);
+        if (participaciones != null && participaciones >= maximoPorSesion) {
+            throw ApiException.conflict("SESSION_FULL", "The session has reached its maximum number of participants");
+        }
+    }
+
+    /**
+     * Inserts the participation with a random pseudonym, retrying on the rare pseudonym collision inside the
+     * session. {@code ON CONFLICT DO NOTHING} reports any conflict without aborting the transaction; when the
+     * conflict is the device's own participation (a racing join of the same device won), that participation
+     * is returned instead. Running out of retries is a controlled 503: the caller's transaction rolls back, so
+     * nothing of the join is kept.
+     */
+    private Ingreso registrarParticipacion(UUID sesionId, UUID dispositivoId, Instant ahora) {
         Timestamp instante = Timestamp.from(ahora);
         for (int intento = 0; intento < INTENTOS_SEUDONIMO; intento++) {
+            UUID id = UUID.randomUUID();
             String seudonimo = seudonimos.nuevo();
             int insertadas = jdbc.update("INSERT INTO operacion.participacion "
                     + "(id, sesion_id, dispositivo_id, seudonimo, ingreso_at, ultima_actividad_at) VALUES (?, ?, ?, ?, ?, ?) "
-                    + "ON CONFLICT ON CONSTRAINT uq_participacion_sesion_seudonimo DO NOTHING",
+                    + "ON CONFLICT DO NOTHING",
                     id, sesionId, dispositivoId, seudonimo, instante, instante);
             if (insertadas == 1) {
-                return seudonimo;
+                return new Ingreso(id, seudonimo, false);
+            }
+            Optional<Ingreso> existente = participacionDe(sesionId, dispositivoId);
+            if (existente.isPresent()) {
+                return existente.get();
             }
         }
         throw ApiException.serviceUnavailable("JOIN_UNAVAILABLE",
                 "Could not register the participation right now. Try again in a moment");
+    }
+
+    /** Whether the latest decision of the participation on that purpose is an authorization. */
+    private boolean autorizada(UUID participacionId, FinalidadConsentimiento finalidad) {
+        List<String> acciones = jdbc.queryForList("SELECT accion FROM operacion.consentimiento "
+                        + "WHERE participacion_id = ? AND finalidad = ? ORDER BY registrado_at DESC LIMIT 1",
+                String.class, participacionId, finalidad.name());
+        return !acciones.isEmpty() && AccionConsentimiento.AUTORIZA.name().equals(acciones.getFirst());
     }
 
     /** Only the purpose, the policy version, the channel and the time: no address, user agent or free text. */

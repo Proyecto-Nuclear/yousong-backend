@@ -39,6 +39,23 @@ class UnirseCupoSesionApiTest extends ParticipanteApiTestSupport {
     }
 
     @Test
+    void aRejoinOfAKnownDeviceIsNotRefusedByAFullSession() {
+        Local local = localListoParaAbrir();
+        UUID sesionId = abrirSesion(local);
+        var primero = unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false));
+        assertThat(primero.statusCode()).as(primero.body()).isEqualTo(201);
+        unirse(local);
+
+        var rejoin = unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false,
+                json(primero).get("dispositivoToken").asString()));
+
+        assertThat(rejoin.statusCode()).as(rejoin.body()).isEqualTo(201);
+        assertThat(json(rejoin).get("seudonimo").asString()).isEqualTo(json(primero).get("seudonimo").asString());
+        assertProblema(unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false)), 409, "SESSION_FULL");
+        assertThat(filasDe(sesionId)).isEqualTo(2);
+    }
+
+    @Test
     void theCapIsPerSession() {
         Local local = localListoParaAbrir();
         UUID primera = abrirSesion(local);

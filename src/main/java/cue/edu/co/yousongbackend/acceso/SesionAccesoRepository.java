@@ -13,11 +13,17 @@ import org.springframework.data.repository.query.Param;
  */
 public interface SesionAccesoRepository extends JpaRepository<SesionAcceso, UUID> {
 
-    /** Revokes every live credential of the devices that joined the session. */
+    /** Revokes every live credential of the participations of the session. */
     @Modifying(flushAutomatically = true)
-    @Query("update SesionAcceso a set a.revocadaAt = :ahora where a.revocadaAt is null and a.dispositivoId in "
-            + "(select p.dispositivoId from Participacion p where p.sesionId = :sesionId and p.dispositivoId is not null)")
+    @Query("update SesionAcceso a set a.revocadaAt = :ahora where a.revocadaAt is null and a.participacionId in "
+            + "(select p.id from Participacion p where p.sesionId = :sesionId)")
     int revocarDeLaSesion(@Param("sesionId") UUID sesionId, @Param("ahora") Instant ahora);
+
+    /** Revokes every live credential of one participation. */
+    @Modifying(flushAutomatically = true)
+    @Query("update SesionAcceso a set a.revocadaAt = :ahora where a.revocadaAt is null "
+            + "and a.participacionId = :participacionId")
+    int revocarDeLaParticipacion(@Param("participacionId") UUID participacionId, @Param("ahora") Instant ahora);
 
     @Modifying(flushAutomatically = true)
     @Query("update SesionAcceso a set a.revocadaAt = :ahora where a.revocadaAt is null and a.dispositivoId = :dispositivoId")

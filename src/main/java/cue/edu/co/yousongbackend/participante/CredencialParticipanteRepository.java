@@ -11,7 +11,8 @@ public interface CredencialParticipanteRepository extends Repository<SesionAcces
 
     /**
      * Credential, device, participation and session of a token hash, in one indexed query
-     * ({@code uq_sesion_acceso_refresh_hash}). Staff credentials have no device and never match.
+     * ({@code uq_sesion_acceso_refresh_hash}). The credential names its participation, because one device
+     * holds one participation per session. Staff credentials have no device nor participation and never match.
      */
     @Query("""
             select new cue.edu.co.yousongbackend.participante.CredencialParticipante(
@@ -19,7 +20,7 @@ public interface CredencialParticipanteRepository extends Repository<SesionAcces
                 p.id, p.seudonimo, s.id, s.establecimientoId, s.estado)
             from SesionAcceso a
                 join Dispositivo d on d.id = a.dispositivoId
-                join Participacion p on p.dispositivoId = d.id
+                join Participacion p on p.id = a.participacionId
                 join Sesion s on s.id = p.sesionId
             where a.refreshHash = :hash""")
     List<CredencialParticipante> buscarPorHash(@Param("hash") String hash);

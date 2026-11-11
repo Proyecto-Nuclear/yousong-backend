@@ -40,6 +40,16 @@ abstract class ParticipanteApiTestSupport extends ApiIntegrationTest {
         return json.append('}').toString();
     }
 
+    /** The join body of a client that remembers its device token ({@code null} behaves like a legacy client). */
+    protected static String cuerpo(String canal, String politicaVersion, Boolean autorizaF1, Boolean autorizaF2,
+                                   String dispositivoToken) {
+        String base = cuerpo(canal, politicaVersion, autorizaF1, autorizaF2);
+        if (dispositivoToken == null) {
+            return base;
+        }
+        return base.substring(0, base.length() - 1) + ",\"dispositivoToken\":\"" + dispositivoToken + "\"}";
+    }
+
     protected HttpResponse<String> unirse(String slug, String body) {
         return post(participaciones(slug), null, body);
     }
