@@ -12,7 +12,8 @@
     "administradorUserId": "00000000-0000-4000-8000-0000000000a1",
     "operadorEmail": "operador@yousong.local",
     "operadorPassword": "Yousong-Oper-Dev-2026!",
-    "operadorUserId": "00000000-0000-4000-8000-0000000000a2"
+    "operadorUserId": "00000000-0000-4000-8000-0000000000a2",
+    "issuer": "http://127.0.0.1:9011"
   },
   "apiKeys": [
     {
@@ -21,6 +22,15 @@
     }
   ],
   "requests": [
+    {
+      "method": "PATCH",
+      "url": "/api/tenant/#{FUSIONAUTH_TENANT_ID}",
+      "body": {
+        "tenant": {
+          "issuer": "#{issuer}"
+        }
+      }
+    },
     {
       "method": "POST",
       "url": "/api/key/generate/#{asymmetricKeyId}",
@@ -39,8 +49,14 @@
         "application": {
           "name": "Yousong",
           "roles": [
-            { "name": "ADMINISTRADOR", "description": "Configures schedules, sessions, roles, default list and analytics" },
-            { "name": "OPERADOR", "description": "Supervises the player station, skips songs and moderates content" }
+            {
+              "name": "ADMINISTRADOR",
+              "description": "Configures schedules, sessions, roles, default list and analytics"
+            },
+            {
+              "name": "OPERADOR",
+              "description": "Supervises the player station, skips songs and moderates content"
+            }
           ],
           "oauthConfiguration": {
             "clientId": "#{applicationId}",
@@ -50,7 +66,10 @@
               "http://localhost:3000/"
             ],
             "logoutURL": "http://localhost:3000/",
-            "enabledGrants": ["authorization_code", "refresh_token"],
+            "enabledGrants": [
+              "authorization_code",
+              "refresh_token"
+            ],
             "generateRefreshTokens": true,
             "requireRegistration": true
           },
@@ -77,7 +96,9 @@
         },
         "registration": {
           "applicationId": "#{FUSIONAUTH_APPLICATION_ID}",
-          "roles": ["admin"]
+          "roles": [
+            "admin"
+          ]
         }
       }
     },
@@ -94,7 +115,9 @@
         },
         "registration": {
           "applicationId": "#{applicationId}",
-          "roles": ["ADMINISTRADOR"]
+          "roles": [
+            "ADMINISTRADOR"
+          ]
         }
       }
     },
@@ -111,7 +134,9 @@
         },
         "registration": {
           "applicationId": "#{applicationId}",
-          "roles": ["OPERADOR"]
+          "roles": [
+            "OPERADOR"
+          ]
         }
       }
     }
