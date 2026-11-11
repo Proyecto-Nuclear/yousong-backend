@@ -36,6 +36,9 @@ public class Cancion {
     @Column(name = "artista_verificado", length = 160)
     private String artistaVerificado;
 
+    @Column(name = "canal_titulo", length = 200)
+    private String canalTitulo;
+
     @Column(name = "miniatura_url", length = 2048)
     private String miniaturaUrl;
 
