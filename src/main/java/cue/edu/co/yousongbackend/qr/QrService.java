@@ -13,6 +13,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Builds the access QR of an establishment. Establishments print it once, so the URL identifies the
  * establishment only ({@code /s/{qrSlug}}) and stays the same across sessions. Which session a client joins
  * is decided when it joins (the one in operation at that moment), and its credential dies with that session.
+ *
+ * <p>Accepted trade-off of a stable QR: the URL identifies the establishment but not the night, so anyone who
+ * has the URL can join whenever a session is open, without being physically present. This follows from the
+ * requirement that printed QR codes never change. The mitigations are the join limits (per client address,
+ * per establishment and per session, see {@code participante.LimitadorUniones}) and the participant
+ * credential dying when the session closes.
  */
 @Service
 public class QrService {
