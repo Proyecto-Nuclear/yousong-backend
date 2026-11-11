@@ -12,6 +12,8 @@ public interface EstablecimientoRepository extends JpaRepository<Establecimiento
 
     boolean existsByQrSlug(String qrSlug);
 
+    Optional<Establecimiento> findByQrSlug(String qrSlug);
+
     /** Row lock: serializes operations that must not interleave for one establishment (e.g. opening a session). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from Establecimiento e where e.id = :id")

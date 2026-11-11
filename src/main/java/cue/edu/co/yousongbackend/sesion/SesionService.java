@@ -1,5 +1,6 @@
 package cue.edu.co.yousongbackend.sesion;
 
+import cue.edu.co.yousongbackend.acceso.AccesoParticipantes;
 import cue.edu.co.yousongbackend.cola.EstadoSolicitud;
 import cue.edu.co.yousongbackend.cola.SolicitudRepository;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
@@ -18,9 +19,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -48,13 +51,15 @@ public class SesionService {
     private final ReproduccionRepository reproducciones;
     private final EstacionRepository estaciones;
     private final EventoOutboxPublisher eventos;
+    private final AccesoParticipantes accesoParticipantes;
     private final EntityManager entityManager;
     private final Clock clock;
 
     SesionService(SesionRepository sesiones, EstablecimientoService establecimientos, ListaDefectoRepository listas,
                   SolicitudRepository solicitudes, ReproduccionRepository reproducciones,
-                  EstacionRepository estaciones, EventoOutboxPublisher eventos, EntityManager entityManager,
-                  Clock clock) {
+                  EstacionRepository estaciones, EventoOutboxPublisher eventos,
+                  AccesoParticipantes accesoParticipantes, EntityManager entityManager, Clock clock) {
+        this.accesoParticipantes = accesoParticipantes;
         this.sesiones = sesiones;
         this.establecimientos = establecimientos;
         this.listas = listas;
@@ -114,6 +119,9 @@ public class SesionService {
                 EstadoSolicitud.NO_ATENDIDA_CIERRE, ahora);
         reproducciones.terminarAbiertas(sesionId, ResultadoReproduccion.INTERRUMPIDA_CIERRE, ahora);
         estaciones.deshabilitarDeLaSesion(sesionId);
+        // Participants lose access with the session, in the same transaction: from the commit on, every
+        // participant call answers SESSION_ENDED. The session row lock above waits for joins in progress.
+        accesoParticipantes.revocarDeLaSesion(sesionId, ahora);
 
         sesion.setEstado(EstadoSesion.CERRADA);
         sesion.setCerradaAt(ahora);
@@ -145,6 +153,27 @@ public class SesionService {
     @Transactional(readOnly = true)
     public boolean hayEnOperacion(UUID establecimientoId) {
         return sesiones.findFirstByEstablecimientoIdAndEstadoIn(establecimientoId, EN_OPERACION).isPresent();
+    }
+
+    /** The session in operation, if any, without failing (the establishment is not checked). */
+    @Transactional(readOnly = true)
+    public Optional<Sesion> buscarEnOperacion(UUID establecimientoId) {
+        return sesiones.findFirstByEstablecimientoIdAndEstadoIn(establecimientoId, EN_OPERACION);
+    }
+
+    /**
+     * The session in operation, locked with a shared lock until the surrounding transaction ends, so a
+     * concurrent {@link #cerrar} cannot interleave with a participant joining it. Call it before loading
+     * the session any other way in the same transaction, or the persistence context would return stale state.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Sesion> bloquearEnOperacionParaUnirse(UUID establecimientoId) {
+        return sesiones.findEnOperacionForShare(establecimientoId, EN_OPERACION);
+    }
+
+    /** True for the states in which participants keep their access (ABIERTA, PAUSADA, CERRANDO). */
+    public static boolean enOperacion(EstadoSesion estado) {
+        return estado != null && EN_OPERACION.contains(estado);
     }
 
     /** Microsecond precision, like the database, so what we return equals what is stored. */

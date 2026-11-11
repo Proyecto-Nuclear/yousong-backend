@@ -9,7 +9,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/** The access QR of the session that is currently open, as the admin portal consumes it. */
+/**
+ * The access QR of an establishment, as the admin portal consumes it. Establishments print it once, so it
+ * identifies the establishment only and never changes from one session to the next.
+ */
 class QrApiTest extends ApiIntegrationTest {
 
     private static String qr(Local local) {
@@ -23,46 +26,44 @@ class QrApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void theQrPointsToTheOpenSessionOfTheEstablishmentAndDecodesBackToThatUrl() throws Exception {
+    void theQrPointsToTheEstablishmentAndDecodesBackToThatUrl() throws Exception {
         Local local = localListoParaAbrir();
-        String sesionId = abrirSesion(local);
 
         HttpResponse<String> response = get(qr(local), adminToken());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         JsonNode body = json(response);
-        String expectedUrl = PUBLIC_BASE_URL + "/s/" + local.slug() + "/" + sesionId;
+        String expectedUrl = PUBLIC_BASE_URL + "/s/" + local.slug();
         assertThat(body.get("url").asString()).isEqualTo(expectedUrl);
-        assertThat(body.get("sesionId").asString()).isEqualTo(sesionId);
+        assertThat(body.has("sesionId")).isFalse();
         assertThat(body.get("svg").asString()).startsWith("<svg ");
         assertThat(QrSvgDecoder.decode(body.get("svg").asString())).isEqualTo(expectedUrl);
     }
 
     @Test
-    void aNewSessionGetsADifferentQr() {
+    void theQrIsAvailableWithoutAnOpenSession() {
         Local local = localListoParaAbrir();
-        String first = abrirSesion(local);
-        String urlOfFirst = json(get(qr(local), adminToken())).get("url").asString();
-        post("/api/admin/sesiones/" + first + "/cierre", adminToken());
 
-        String second = abrirSesion(local);
-        String urlOfSecond = json(get(qr(local), adminToken())).get("url").asString();
+        HttpResponse<String> response = get(qr(local), adminToken());
 
-        assertThat(urlOfFirst).endsWith(first);
-        assertThat(urlOfSecond).endsWith(second).isNotEqualTo(urlOfFirst);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(json(response).get("url").asString()).isEqualTo(PUBLIC_BASE_URL + "/s/" + local.slug());
     }
 
     @Test
-    void thereIsNoQrWithoutAnOpenSession() {
+    void theQrStaysTheSameAcrossSessions() {
         Local local = localListoParaAbrir();
-        HttpResponse<String> before = get(qr(local), adminToken());
-        assertThat(before.statusCode()).isEqualTo(404);
-        assertThat(json(before).get("code").asString()).isEqualTo("NO_ACTIVE_SESSION");
+        String before = json(get(qr(local), adminToken())).get("url").asString();
 
-        String sesionId = abrirSesion(local);
-        post("/api/admin/sesiones/" + sesionId + "/cierre", adminToken());
+        String first = abrirSesion(local);
+        String duringFirst = json(get(qr(local), adminToken())).get("url").asString();
+        post("/api/admin/sesiones/" + first + "/cierre", adminToken());
+        abrirSesion(local);
+        String duringSecond = json(get(qr(local), adminToken())).get("url").asString();
 
-        assertThat(get(qr(local), adminToken()).statusCode()).isEqualTo(404);
+        assertThat(duringFirst).isEqualTo(before);
+        assertThat(duringSecond).isEqualTo(before);
+        assertThat(before).doesNotContain(first);
     }
 
     @Test
@@ -76,7 +77,6 @@ class QrApiTest extends ApiIntegrationTest {
     @Test
     void onlyAdministratorsSeeTheQr() {
         Local local = localListoParaAbrir();
-        abrirSesion(local);
 
         assertThat(get(qr(local), operatorToken()).statusCode()).isEqualTo(403);
         assertThat(get(qr(local), null).statusCode()).isEqualTo(401);
