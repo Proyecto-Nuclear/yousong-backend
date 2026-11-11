@@ -20,13 +20,11 @@ import cue.edu.co.yousongbackend.sesion.Sesion;
 import cue.edu.co.yousongbackend.sesion.SesionService;
 import cue.edu.co.yousongbackend.shared.web.ApiException;
 import jakarta.persistence.EntityManager;
-import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HexFormat;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,9 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Anonymous clients ("participants") joining the session in operation of an establishment through its QR.
  *
- * <p>Known limitation: the public join endpoint has no rate limiting yet, so one client can register many
- * participations (and fill the database) in an open session. Add a limit per address or per establishment
- * before a public launch.
+ * <p>Joining is anonymous, so it is bounded three ways: joins per minute per client address and per
+ * establishment ({@link LimitadorUniones}), and participations per session ({@code app.participante.max-per-session}).
  */
 @Service
 public class ParticipacionService {
@@ -47,31 +44,41 @@ public class ParticipacionService {
     static final Duration VIGENCIA_DISPOSITIVO = Duration.ofDays(30);
 
     private static final int INTENTOS_SEUDONIMO = 10;
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final EstablecimientoService establecimientos;
     private final SesionService sesiones;
     private final AccesoParticipantes accesos;
     private final PoliticaPrivacidad politica;
+    private final GeneradorSeudonimos seudonimos;
+    private final LimitadorUniones limitador;
     private final EntityManager entityManager;
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final Duration vigenciaCredencial;
+    private final int maximoPorSesion;
 
     ParticipacionService(EstablecimientoService establecimientos, SesionService sesiones, AccesoParticipantes accesos,
-                         PoliticaPrivacidad politica, EntityManager entityManager, JdbcTemplate jdbc, Clock clock,
-                         @Value("${app.participante.credential-ttl-hours:24}") long horasCredencial) {
+                         PoliticaPrivacidad politica, GeneradorSeudonimos seudonimos, LimitadorUniones limitador,
+                         EntityManager entityManager, JdbcTemplate jdbc, Clock clock,
+                         @Value("${app.participante.credential-ttl-hours:24}") long horasCredencial,
+                         @Value("${app.participante.max-per-session:5000}") int maximoPorSesion) {
         if (horasCredencial <= 0) {
             throw new IllegalStateException("app.participante.credential-ttl-hours must be positive");
+        }
+        if (maximoPorSesion <= 0) {
+            throw new IllegalStateException("app.participante.max-per-session must be positive");
         }
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
         this.accesos = accesos;
         this.politica = politica;
+        this.seudonimos = seudonimos;
+        this.limitador = limitador;
         this.entityManager = entityManager;
         this.jdbc = jdbc;
         this.clock = clock;
         this.vigenciaCredencial = Duration.ofHours(horasCredencial);
+        this.maximoPorSesion = maximoPorSesion;
     }
 
     @Transactional(readOnly = true)
@@ -90,10 +97,14 @@ public class ParticipacionService {
      * holding a shared lock on the session so a concurrent close either waits for this join (and then
      * revokes its credential) or has already committed (and then the join finds no session).
      *
-     * <p>No rate limiting yet (see the class documentation).
+     * <p>The per-minute limits are checked before the session lock is requested, so a limited client
+     * neither creates rows nor delays a close. The per-session cap is counted under the shared lock; joins
+     * running at the same moment may overshoot it by a few, which is fine for a bound against floods.
+     *
+     * @param direccion the client address, used only as a key of the in-memory limiter (never stored)
      */
     @Transactional
-    public UnirseResponse unirse(String qrSlug, UnirseRequest request) {
+    public UnirseResponse unirse(String qrSlug, UnirseRequest request, String direccion) {
         if (!Boolean.TRUE.equals(request.autorizaF1())) {
             throw ApiException.badRequest("CONSENT_REQUIRED",
                     "Purpose F1 of the privacy policy must be authorized to participate");
@@ -103,6 +114,7 @@ public class ParticipacionService {
                     "The privacy policy changed; the current version is " + politica.version());
         }
         Establecimiento establecimiento = establecimientos.obtenerPorSlug(qrSlug);
+        limitador.registrar(direccion, establecimiento.getId());
         if (!establecimiento.isActivo()) {
             throw ApiException.conflict("ESTABLISHMENT_INACTIVE", "The establishment is not active");
         }
@@ -112,6 +124,11 @@ public class ParticipacionService {
                         "The establishment has no session open to participants"));
         if (sesion.getEstado() == EstadoSesion.PAUSADA) {
             throw ApiException.conflict("SESSION_PAUSED", "The session is paused; try again when it resumes");
+        }
+        Integer participaciones = jdbc.queryForObject(
+                "SELECT count(*) FROM operacion.participacion WHERE sesion_id = ?", Integer.class, sesion.getId());
+        if (participaciones != null && participaciones >= maximoPorSesion) {
+            throw ApiException.conflict("SESSION_FULL", "The session has reached its maximum number of participants");
         }
 
         Instant ahora = clock.instant().truncatedTo(ChronoUnit.MICROS);
@@ -170,12 +187,13 @@ public class ParticipacionService {
 
     /**
      * Inserts the participation with a random pseudonym, retrying on the rare collision inside the session.
-     * {@code ON CONFLICT DO NOTHING} reports the collision without aborting the transaction.
+     * {@code ON CONFLICT DO NOTHING} reports the collision without aborting the transaction. Running out of
+     * retries is a controlled 503: the caller's transaction rolls back, so nothing of the join is kept.
      */
     private String registrarParticipacion(UUID id, UUID sesionId, UUID dispositivoId, Instant ahora) {
         Timestamp instante = Timestamp.from(ahora);
         for (int intento = 0; intento < INTENTOS_SEUDONIMO; intento++) {
-            String seudonimo = nuevoSeudonimo();
+            String seudonimo = seudonimos.nuevo();
             int insertadas = jdbc.update("INSERT INTO operacion.participacion "
                     + "(id, sesion_id, dispositivo_id, seudonimo, ingreso_at, ultima_actividad_at) VALUES (?, ?, ?, ?, ?, ?) "
                     + "ON CONFLICT ON CONSTRAINT uq_participacion_sesion_seudonimo DO NOTHING",
@@ -184,13 +202,8 @@ public class ParticipacionService {
                 return seudonimo;
             }
         }
-        throw new IllegalStateException("Could not find a free pseudonym in session " + sesionId);
-    }
-
-    private static String nuevoSeudonimo() {
-        byte[] bytes = new byte[3];
-        RANDOM.nextBytes(bytes);
-        return "p-" + HexFormat.of().formatHex(bytes);
+        throw ApiException.serviceUnavailable("JOIN_UNAVAILABLE",
+                "Could not register the participation right now. Try again in a moment");
     }
 
     /** Only the purpose, the policy version, the channel and the time: no address, user agent or free text. */

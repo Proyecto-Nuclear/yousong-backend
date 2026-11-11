@@ -3,6 +3,7 @@ package cue.edu.co.yousongbackend.participante;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.EstablecimientoPublicoResponse;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.UnirseRequest;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.UnirseResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -28,10 +29,14 @@ class ParticipacionPublicaController {
         return service.estadoPublico(qrSlug);
     }
 
-    /** The response carries the credential, so no cache (browser or proxy) may keep it. */
+    /**
+     * The response carries the credential, so no cache (browser or proxy) may keep it. The remote address
+     * feeds the join limiter only (see {@link LimitadorUniones} for running behind a reverse proxy).
+     */
     @PostMapping("/api/public/establecimientos/{qrSlug}/participaciones")
-    ResponseEntity<UnirseResponse> unirse(@PathVariable String qrSlug, @Valid @RequestBody UnirseRequest request) {
+    ResponseEntity<UnirseResponse> unirse(@PathVariable String qrSlug, @Valid @RequestBody UnirseRequest request,
+                                          HttpServletRequest http) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(service.unirse(qrSlug, request));
+                .body(service.unirse(qrSlug, request, http.getRemoteAddr()));
     }
 }
