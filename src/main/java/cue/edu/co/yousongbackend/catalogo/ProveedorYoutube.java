@@ -36,19 +36,38 @@ public class ProveedorYoutube {
                 .build();
     }
 
-    /** search.list followed by videos.list: every match with its details, unavailable ones included. */
+    /** A staff search: {@link #buscar(String, String, OrigenBusqueda)} with {@link OrigenBusqueda#STAFF}. */
     public PaginaVideos buscar(String consulta, String pagina) {
+        return buscar(consulta, pagina, OrigenBusqueda.STAFF);
+    }
+
+    /**
+     * search.list followed by videos.list: every match with its details, unavailable ones included. A
+     * participant search reserves its worst-case cost first (100 units on a search-id miss, plus one details
+     * batch), so a search refused by the participant share or the establishment budget never calls the
+     * provider. A search-id cache hit only costs the details call.
+     */
+    public PaginaVideos buscar(String consulta, String pagina, OrigenBusqueda origen) {
         permitir();
         String clave = consulta.toLowerCase(Locale.ROOT) + "\u0000" + (pagina == null ? "" : pagina);
-        PaginaIds ids = busquedas.getIfPresent(clave);
+        PaginaIds cacheada = busquedas.getIfPresent(clave);
+        boolean reservada = !origen.esStaff();
+        if (reservada) {
+            int lotes = YoutubeClient.lotes(cacheada == null ? propiedades.maxResults() : cacheada.videoIds().size());
+            int busqueda = cacheada == null ? CuotaYoutube.COSTO_BUSQUEDA : 0;
+            cuota.reservar(origen.establecimientoId(), busqueda + CuotaYoutube.COSTO_DETALLES * lotes);
+        }
+        PaginaIds ids = cacheada;
         if (ids == null) {
-            ids = ejecutar(CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
+            ids = ejecutar(reservada ? 0 : CuotaYoutube.COSTO_BUSQUEDA, () -> cliente.buscar(consulta, pagina));
             busquedas.put(clave, ids);
         }
         if (ids.videoIds().isEmpty()) {
             return new PaginaVideos(List.of(), ids.siguientePagina());
         }
-        return new PaginaVideos(detalles(ids.videoIds()), ids.siguientePagina());
+        List<String> videoIds = ids.videoIds();
+        List<VideoYoutube> videos = reservada ? ejecutar(0, () -> cliente.obtener(videoIds)) : detalles(videoIds);
+        return new PaginaVideos(videos, ids.siguientePagina());
     }
 
     /** videos.list for the given ids (batches of 50). Ids the provider does not know are absent. */

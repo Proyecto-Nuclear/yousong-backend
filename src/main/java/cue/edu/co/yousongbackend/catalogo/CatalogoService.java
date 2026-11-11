@@ -37,11 +37,19 @@ public class CatalogoService {
                 .build();
     }
 
+    /** A staff search, which may use the whole daily quota. */
+    public BusquedaResponse buscar(String consulta, String pagina) {
+        return buscar(consulta, pagina, OrigenBusqueda.STAFF);
+    }
+
     /**
+     * A cache hit answers for free; only a miss reaches the provider and is charged to {@code origen}.
+     *
      * @param consulta what to look for (2 to 100 characters once trimmed and with spaces collapsed)
      * @param pagina   the {@code siguientePagina} of the previous response, or null for the first page
+     * @param origen   staff, or the participant's establishment (bounded by its share and daily budget)
      */
-    public BusquedaResponse buscar(String consulta, String pagina) {
+    public BusquedaResponse buscar(String consulta, String pagina, OrigenBusqueda origen) {
         String texto = normalizar(consulta);
         String token = token(pagina);
         String clave = texto.toLowerCase(Locale.ROOT) + "\u0000" + (token == null ? "" : token);
@@ -51,7 +59,7 @@ public class CatalogoService {
         PaginaVideos resultado = cache.getIfPresent(clave);
         if (resultado == null) {
             try {
-                PaginaVideos pagina1 = proveedor.buscar(texto, token);
+                PaginaVideos pagina1 = proveedor.buscar(texto, token, origen);
                 List<VideoYoutube> disponibles = pagina1.videos().stream().filter(VideoYoutube::disponible).toList();
                 resultado = new PaginaVideos(disponibles, pagina1.siguientePagina());
             } catch (YoutubeException e) {

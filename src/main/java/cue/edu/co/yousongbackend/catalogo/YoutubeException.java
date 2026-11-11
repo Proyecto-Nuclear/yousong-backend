@@ -8,7 +8,10 @@ public class YoutubeException extends RuntimeException {
     public enum Tipo {
         NOT_CONFIGURED("CATALOG_NOT_CONFIGURED", "The YouTube catalog is not configured"),
         QUOTA_EXCEEDED("CATALOG_QUOTA_EXCEEDED", "The YouTube daily quota is exhausted; try again later"),
-        UNAVAILABLE("CATALOG_UNAVAILABLE", "The YouTube catalog is not available right now");
+        UNAVAILABLE("CATALOG_UNAVAILABLE", "The YouTube catalog is not available right now"),
+        /** Not a provider failure: the establishment used its daily search budget. Answered as 429. */
+        BUDGET_EXHAUSTED("SEARCH_BUDGET_EXHAUSTED",
+                "This place has used its catalog searches for today; ask the staff for your song");
 
         private final String code;
         private final String message;
@@ -31,6 +34,9 @@ public class YoutubeException extends RuntimeException {
     }
 
     public ApiException aApi() {
+        if (tipo == Tipo.BUDGET_EXHAUSTED) {
+            return ApiException.tooManyRequests(tipo.code, tipo.message);
+        }
         return ApiException.serviceUnavailable(tipo.code, tipo.message);
     }
 }
