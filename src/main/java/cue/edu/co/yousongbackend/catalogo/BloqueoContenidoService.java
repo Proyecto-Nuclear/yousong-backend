@@ -128,6 +128,9 @@ public class BloqueoContenidoService {
                 SesionBloqueada sesion = versionCola.avanzar(sesionId.get()).orElseThrow();
                 versionCola.publicarCambio(establecimientoId, sesion.id(), sesion.colaVersion(), "content_blocked",
                         correlacion);
+            } else {
+                // No request changed, but the block can still drop a song from the default-list preview.
+                versionCola.notificarCambio(establecimientoId);
             }
             reproduciendo = !jdbc.queryForList("SELECT 1 FROM operacion.reproduccion WHERE sesion_id = ? "
                     + "AND cancion_id = ? AND terminada_at IS NULL", sesionId.get(), cancionId).isEmpty();
@@ -172,6 +175,10 @@ public class BloqueoContenidoService {
         UUID sesionId = jdbc.queryForList("SELECT id FROM operacion.sesion WHERE establecimiento_id = ? "
                 + "AND estado IN ('ABIERTA', 'PAUSADA', 'CERRANDO')", UUID.class, establecimientoId).stream().findFirst()
                 .orElse(null);
+        if (sesionId != null) {
+            // A lifted song can come back into the default-list preview of the public queue.
+            versionCola.notificarCambio(establecimientoId);
+        }
         UUID correlacion = UUID.randomUUID();
         publicar(establecimientoId, sesionId, bloqueoId, cancion.get(0), "LIFTED", actual.hastaAt(),
                 actual.motivoCodigo(), 1, correlacion);

@@ -29,11 +29,19 @@ class ColaController {
         this.solicitudes = solicitudes;
     }
 
+    /**
+     * The anonymous snapshot: the requests ({@code cola}), the song playing and, after them, the upcoming
+     * default-list songs ({@code proximasDefecto}, {@code rotacionDefecto}); see {@link ColaResponse}.
+     */
     @GetMapping("/api/public/establecimientos/{qrSlug}/cola")
     ColaResponse publica(@PathVariable String qrSlug) {
         return cola.publica(qrSlug);
     }
 
+    /**
+     * The same snapshot with {@code votado} on the requests and the song playing; the default-list preview has
+     * no {@code votado}, since default songs cannot be supported.
+     */
     @GetMapping("/api/participante/cola")
     ColaResponse deParticipante(@AuthenticationPrincipal ParticipanteAutenticado participante) {
         return cola.deParticipante(participante);

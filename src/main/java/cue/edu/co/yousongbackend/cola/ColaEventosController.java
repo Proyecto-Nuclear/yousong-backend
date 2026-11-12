@@ -14,7 +14,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * The anonymous public queue as Server-Sent Events, so the screen behind the QR updates without reloading. Events
  * are named {@code cola} and carry the same snapshot as {@code GET .../cola}; see {@link SuscripcionesCola} for when
- * they are sent, keep-alives, limits and why {@code Last-Event-ID} is ignored.
+ * they are sent, keep-alives, limits and why {@code Last-Event-ID} is ignored. The snapshot includes the
+ * default-list preview ({@code proximasDefecto}), so a default song starting or a block placed or lifted while the
+ * session runs sends a new event too (only when the snapshot actually changed).
  */
 @RestController
 class ColaEventosController {

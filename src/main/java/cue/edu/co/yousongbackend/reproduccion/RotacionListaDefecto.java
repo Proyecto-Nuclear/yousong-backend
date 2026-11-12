@@ -1,6 +1,7 @@
 package cue.edu.co.yousongbackend.reproduccion;
 
 import cue.edu.co.yousongbackend.repertorio.PoliticaRotacion;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -23,15 +24,28 @@ import org.springframework.stereotype.Component;
  *       same song again only when it is the only playable one.</li>
  * </ul>
  * The caller holds the session row lock, so two picks of one session never run at the same time.
+ *
+ * <p>{@link #proximas} is the read-only preview of the same rule that the public queue shows; it shares the
+ * loading of the list and the cursor with {@link #siguiente}, so both can never disagree.
  */
 @Component
-class RotacionListaDefecto {
+public class RotacionListaDefecto {
 
     /** A default-list item chosen to play. */
     record ItemElegido(UUID itemListaId, UUID cancionId) {
     }
 
+    /**
+     * The upcoming picks of the default list: its rotation policy and, for SECUENCIAL, the song ids in the order
+     * they would play (empty for ALEATORIA, which cannot be predicted).
+     */
+    public record ProximasDefecto(PoliticaRotacion politica, List<UUID> cancionIds) {
+    }
+
     private record Item(UUID id, UUID cancionId, int posicion) {
+    }
+
+    private record Estado(PoliticaRotacion politica, List<Item> jugables, Optional<Item> ultimo) {
     }
 
     private final JdbcTemplate jdbc;
@@ -42,6 +56,39 @@ class RotacionListaDefecto {
 
     /** The next item to play, or empty when the list is empty or nothing of it is playable now. */
     Optional<ItemElegido> siguiente(UUID sesionId, Set<UUID> cancionesBloqueadas) {
+        return estado(sesionId, cancionesBloqueadas).map(estado -> {
+            Item elegido = estado.politica() == PoliticaRotacion.ALEATORIA
+                    ? aleatorio(estado.jugables(), estado.ultimo())
+                    : secuencial(estado.jugables(), estado.ultimo());
+            return new ItemElegido(elegido.id(), elegido.cancionId());
+        });
+    }
+
+    /**
+     * What the rotation will pick next, without picking it (no write, no randomness): the policy of the pinned
+     * list and, for SECUENCIAL, the songs of the next {@code cuantos} picks in order, by the very same rule as
+     * {@link #siguiente}, each playable item at most once (a list with fewer playable items shows each once).
+     * ALEATORIA cannot be predicted, so its songs are empty. Empty when the list has nothing playable now.
+     */
+    public Optional<ProximasDefecto> proximas(UUID sesionId, Set<UUID> cancionesBloqueadas, int cuantos) {
+        return estado(sesionId, cancionesBloqueadas).map(estado -> {
+            if (estado.politica() == PoliticaRotacion.ALEATORIA) {
+                return new ProximasDefecto(estado.politica(), List.of());
+            }
+            int total = Math.min(Math.max(cuantos, 0), estado.jugables().size());
+            List<UUID> canciones = new ArrayList<>(total);
+            Optional<Item> ultimo = estado.ultimo();
+            for (int i = 0; i < total; i++) {
+                Item elegido = secuencial(estado.jugables(), ultimo);
+                canciones.add(elegido.cancionId());
+                ultimo = Optional.of(elegido);
+            }
+            return new ProximasDefecto(estado.politica(), List.copyOf(canciones));
+        });
+    }
+
+    /** The policy, the playable items in position order and the rotation cursor; empty when nothing is playable. */
+    private Optional<Estado> estado(UUID sesionId, Set<UUID> cancionesBloqueadas) {
         List<String> politicas = jdbc.queryForList("SELECT l.politica_rotacion FROM operacion.sesion s "
                 + "JOIN operacion.lista_defecto l ON l.id = s.lista_id WHERE s.id = ?", String.class, sesionId);
         if (politicas.isEmpty()) {
@@ -63,9 +110,7 @@ class RotacionListaDefecto {
                         + "WHERE r.sesion_id = ? AND r.origen = 'DEFECTO' ORDER BY r.preparada_at DESC, r.id DESC LIMIT 1",
                 (fila, n) -> new Item(fila.getObject("id", UUID.class), fila.getObject("cancion_id", UUID.class),
                         fila.getInt("posicion")), sesionId).stream().findFirst();
-
-        Item elegido = politica == PoliticaRotacion.ALEATORIA ? aleatorio(jugables, ultimo) : secuencial(jugables, ultimo);
-        return Optional.of(new ItemElegido(elegido.id(), elegido.cancionId()));
+        return Optional.of(new Estado(politica, jugables, ultimo));
     }
 
     private static Item secuencial(List<Item> jugables, Optional<Item> ultimo) {

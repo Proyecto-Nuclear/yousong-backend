@@ -5,8 +5,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -53,6 +56,25 @@ public class ColaConsultas {
                 (fila, n) -> new Fila(fila.getObject("id", UUID.class), fila.getObject("cancion_id", UUID.class),
                         fila.getLong("votos"), cancion(fila), entero(fila, "duracion_operativa_s")),
                 sesionId);
+    }
+
+    /** A song of the default-list preview, with its operating duration for the waits. */
+    record CancionDefecto(CancionCola cancion, Integer duracionOperativa) {
+    }
+
+    /** The given songs by id (the ones of the default-list preview); unknown ids are simply absent. */
+    Map<UUID, CancionDefecto> canciones(Collection<UUID> cancionIds) {
+        Map<UUID, CancionDefecto> porId = new HashMap<>();
+        if (cancionIds.isEmpty()) {
+            return porId;
+        }
+        jdbc.query("SELECT c.id, " + CANCION + " FROM operacion.cancion c WHERE c.id = ANY (?)",
+                ps -> ps.setArray(1, ps.getConnection().createArrayOf("uuid", cancionIds.toArray())),
+                fila -> {
+                    porId.put(fila.getObject("id", UUID.class),
+                            new CancionDefecto(cancion(fila), entero(fila, "duracion_operativa_s")));
+                });
+        return porId;
     }
 
     public Optional<Sonando> sonando(UUID sesionId) {
