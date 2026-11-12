@@ -13,9 +13,13 @@ public final class ParticipacionDtos {
     private ParticipacionDtos() {
     }
 
-    /** What a client sees after scanning the QR. */
+    /**
+     * What a client sees after scanning the QR. {@code proximaApertura} (optional, omitted when null) is the start
+     * of the next weekly window while the establishment is closed because it is outside its opening hours.
+     */
     public record EstablecimientoPublicoResponse(String nombre, String qrSlug, EstadoServicio servicio,
-                                                 boolean puedeParticipar) {
+                                                 boolean puedeParticipar,
+                                                 @JsonInclude(JsonInclude.Include.NON_NULL) Instant proximaApertura) {
     }
 
     public record EstablecimientoResumen(String nombre) {

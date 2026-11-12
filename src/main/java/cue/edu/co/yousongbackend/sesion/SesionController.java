@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The owner opens, reads and closes the session of their own establishment (see {@link PropietarioActual}). */
+/** The owner opens, reads, pauses, resumes and closes the session of their own establishment (see {@link PropietarioActual}). */
 @RestController
 class SesionController {
 
@@ -28,6 +28,16 @@ class SesionController {
     @PostMapping("/api/mi-establecimiento/sesion/cierre")
     CierreSesionResponse cerrar() {
         return service.cerrarActual(propietario.establecimientoId());
+    }
+
+    @PostMapping("/api/mi-establecimiento/sesion/pausa")
+    SesionResponse pausar() {
+        return service.pausar(propietario.establecimientoId());
+    }
+
+    @PostMapping("/api/mi-establecimiento/sesion/reanudacion")
+    SesionResponse reanudar() {
+        return service.reanudar(propietario.establecimientoId());
     }
 
     @GetMapping("/api/mi-establecimiento/sesion-actual")

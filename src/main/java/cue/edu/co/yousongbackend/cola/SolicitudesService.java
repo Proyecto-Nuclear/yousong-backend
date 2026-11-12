@@ -11,6 +11,7 @@ import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
 import cue.edu.co.yousongbackend.integracion.EventoOutboxPublisher;
 import cue.edu.co.yousongbackend.participante.ParticipanteAutenticado;
 import cue.edu.co.yousongbackend.sesion.EstadoSesion;
+import cue.edu.co.yousongbackend.sesion.ReglasDeParticipacion;
 import cue.edu.co.yousongbackend.shared.web.ApiException;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -55,6 +56,7 @@ public class SolicitudesService {
     private static final String PRODUCTOR = "backend.cola";
 
     private final ColaConsultas consultas;
+    private final ReglasDeParticipacion reglas;
     private final VersionCola versionCola;
     private final LimitadorAccionesCola limitador;
     private final CancionRepository canciones;
@@ -67,7 +69,8 @@ public class SolicitudesService {
     private final Duration ventanaRepeticion;
     private final int maximoActivas;
 
-    SolicitudesService(ColaConsultas consultas, VersionCola versionCola, LimitadorAccionesCola limitador,
+    SolicitudesService(ColaConsultas consultas, ReglasDeParticipacion reglas, VersionCola versionCola,
+                       LimitadorAccionesCola limitador,
                        CancionRepository canciones, MetadatosCancionService metadatos, EventoOutboxPublisher eventos,
                        BloqueosVigentes bloqueos, JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
                        Clock clock,
@@ -80,6 +83,7 @@ public class SolicitudesService {
             throw new IllegalStateException("app.cola.max-active-per-session must be positive");
         }
         this.consultas = consultas;
+        this.reglas = reglas;
         this.versionCola = versionCola;
         this.limitador = limitador;
         this.canciones = canciones;
@@ -107,7 +111,7 @@ public class SolicitudesService {
         }
         if (canciones.findByYoutubeVideoIdIn(List.of(videoId)).isEmpty()) {
             // A cheap early answer so a paused session does not spend quota; the transaction checks again.
-            exigirAbierta(estadoActual(participante.sesionId()));
+            reglas.exigirAccionesDeCola(participante.establecimientoId(), estadoActual(participante.sesionId()));
             metadatos.registrar(metadatos.consultarParaSolicitud(videoId,
                     OrigenBusqueda.participante(participante.establecimientoId())));
         }
@@ -263,20 +267,13 @@ public class SolicitudesService {
 
     private SesionBloqueada bloquearAbierta(UUID sesionId) {
         SesionBloqueada sesion = versionCola.avanzar(sesionId).orElseThrow(() -> noAcepta());
-        exigirAbierta(sesion.estado());
+        reglas.exigirAccionesDeCola(sesion.establecimientoId(), sesion.estado());
         return sesion;
     }
 
     private EstadoSesion estadoActual(UUID sesionId) {
         return jdbc.queryForList("SELECT estado FROM operacion.sesion WHERE id = ?", String.class, sesionId)
                 .stream().findFirst().map(EstadoSesion::valueOf).orElse(null);
-    }
-
-    /** Only an open session takes requests and votes: paused, closing and closed ones do not. */
-    private static void exigirAbierta(EstadoSesion estado) {
-        if (estado != EstadoSesion.ABIERTA) {
-            throw noAcepta();
-        }
     }
 
     private static ApiException noAcepta() {

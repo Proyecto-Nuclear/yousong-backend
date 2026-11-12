@@ -261,6 +261,8 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
         assertThat(json(response).get("id").asString()).isEqualTo(local.id().toString());
         assertThat(json(response).get("qrSlug").asString()).isEqualTo(local.slug());
         assertThat(response.body()).doesNotContain(local.propietario());
+        assertThat(json(response).get("pausado").asBoolean()).isFalse();
+        assertThat(json(response).get("enMantenimiento").asBoolean()).isFalse();
     }
 
     @Test
