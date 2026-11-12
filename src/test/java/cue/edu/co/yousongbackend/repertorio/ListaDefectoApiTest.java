@@ -283,6 +283,18 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     }
 
     @Test
+    void aHugeMalformedVideoIdIsNotEchoedBack() {
+        String enorme = "B".repeat(2 * 1024 * 1024);
+
+        HttpResponse<String> response = publicarComoAdmin(establecimiento(), cuerpo("General", null, enorme));
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(code(response)).isEqualTo("INVALID_VIDEO_ID");
+        assertThat(response.body().length()).isLessThan(1024);
+        assertThat(json(response).get("detail").asString()).startsWith("'" + "B".repeat(20) + "…'");
+    }
+
+    @Test
     void theSameVideoTwiceIsRejected() {
         String video = videoIdAleatorio();
 

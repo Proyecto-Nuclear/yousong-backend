@@ -77,6 +77,26 @@ class SolicitudesApiTest extends ColaApiTestSupport {
     }
 
     @Test
+    void aHugeInvalidVideoIdIsNotEchoedBack() {
+        String token = unirse(localAbierto());
+        String enorme = "A\\u0001" + "x".repeat(2 * 1024 * 1024);
+
+        HttpResponse<String> response = post(SOLICITUDES, token, "{\"videoId\":\"" + enorme + "\"}");
+
+        assertProblema(response, 400, "INVALID_VIDEO_ID");
+        assertThat(response.body().length()).isLessThan(1024);
+        String detalle = json(response).get("detail").asString();
+        assertThat(detalle).startsWith("'A?" + "x".repeat(18) + "…'").doesNotContain("\u0001");
+    }
+
+    @Test
+    void aShortInvalidVideoIdIsStillNamedInFull() {
+        HttpResponse<String> response = solicitar(unirse(localAbierto()), "not a video");
+
+        assertThat(json(response).get("detail").asString()).startsWith("'not a video' is not");
+    }
+
+    @Test
     void anUnknownSongNeedsTheCatalogWhichIsNotConfiguredHere() {
         String token = unirse(localAbierto());
         String video = videoIdAleatorio();

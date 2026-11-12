@@ -106,8 +106,7 @@ public class SolicitudesService {
     public ApoyoResponse solicitar(ParticipanteAutenticado participante, String videoId) {
         limitador.registrar(participante.participacionId());
         if (!VideoIdYoutube.valido(videoId)) {
-            throw ApiException.badRequest("INVALID_VIDEO_ID",
-                    "'" + videoId + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
+            throw VideoIdYoutube.invalido(videoId);
         }
         if (canciones.findByYoutubeVideoIdIn(List.of(videoId)).isEmpty()) {
             // A cheap early answer so a paused session does not spend quota; the transaction checks again.

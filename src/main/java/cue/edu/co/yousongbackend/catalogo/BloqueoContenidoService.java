@@ -88,8 +88,7 @@ public class BloqueoContenidoService {
      */
     public BloqueoResponse bloquear(UUID establecimientoId, CrearBloqueoRequest request) {
         if (request == null || !VideoIdYoutube.valido(request.videoId())) {
-            throw ApiException.badRequest("INVALID_VIDEO_ID", "'" + (request == null ? null : request.videoId())
-                    + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
+            throw VideoIdYoutube.invalido(request == null ? null : request.videoId());
         }
         Duration duracion = duracion(request);
         MotivoBloqueo motivo = motivo(request.motivoCodigo());

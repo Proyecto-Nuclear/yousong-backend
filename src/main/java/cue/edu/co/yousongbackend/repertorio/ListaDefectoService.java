@@ -164,8 +164,7 @@ public class ListaDefectoService {
         Set<String> vistos = new HashSet<>();
         for (String videoId : videoIds) {
             if (!VideoIdYoutube.valido(videoId)) {
-                throw ApiException.badRequest("INVALID_VIDEO_ID",
-                        "'" + videoId + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
+                throw VideoIdYoutube.invalido(videoId);
             }
             if (!vistos.add(videoId)) {
                 throw ApiException.badRequest("DUPLICATE_SONG", "The video '" + videoId + "' appears more than once");
