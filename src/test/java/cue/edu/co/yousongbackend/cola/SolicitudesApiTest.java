@@ -77,6 +77,26 @@ class SolicitudesApiTest extends ColaApiTestSupport {
     }
 
     @Test
+    void aHugeInvalidVideoIdIsNotEchoedBack() {
+        String token = unirse(localAbierto());
+        String enorme = "A\\u0001" + "x".repeat(2 * 1024 * 1024);
+
+        HttpResponse<String> response = post(SOLICITUDES, token, "{\"videoId\":\"" + enorme + "\"}");
+
+        assertProblema(response, 400, "INVALID_VIDEO_ID");
+        assertThat(response.body().length()).isLessThan(1024);
+        String detalle = json(response).get("detail").asString();
+        assertThat(detalle).startsWith("'A?" + "x".repeat(18) + "…'").doesNotContain("\u0001");
+    }
+
+    @Test
+    void aShortInvalidVideoIdIsStillNamedInFull() {
+        HttpResponse<String> response = solicitar(unirse(localAbierto()), "not a video");
+
+        assertThat(json(response).get("detail").asString()).startsWith("'not a video' is not");
+    }
+
+    @Test
     void anUnknownSongNeedsTheCatalogWhichIsNotConfiguredHere() {
         String token = unirse(localAbierto());
         String video = videoIdAleatorio();
@@ -94,6 +114,21 @@ class SolicitudesApiTest extends ColaApiTestSupport {
 
         assertProblema(solicitar(token, video), 409, "SONG_UNAVAILABLE");
         assertThat(contar("SELECT count(*) FROM operacion.solicitud WHERE sesion_id = ?", sesionDe(local))).isZero();
+    }
+
+    @Test
+    void anActiveRequestWhoseSongBecameUnavailableCannotBeVoted() {
+        Local local = localAbierto();
+        String video = videoGuardado();
+        UUID solicitud = solicitada(unirse(local), video);
+        UUID otra = solicitada(unirse(local), videoGuardado());
+        jdbc.update("UPDATE operacion.cancion SET disponibilidad = 'NO_DISPONIBLE' WHERE youtube_video_id = ?", video);
+        String token = unirse(local);
+
+        assertProblema(votar(token, solicitud), 409, "SONG_UNAVAILABLE");
+        assertThat(votos(solicitud)).isEqualTo(1);
+        assertThat(votar(token, otra).statusCode()).isEqualTo(200);
+        assertThat(votos(otra)).isEqualTo(2);
     }
 
     @Test

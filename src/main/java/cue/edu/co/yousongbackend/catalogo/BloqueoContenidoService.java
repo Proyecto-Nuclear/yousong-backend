@@ -58,7 +58,7 @@ public class BloqueoContenidoService {
             + "FROM operacion.bloqueo_contenido b JOIN operacion.cancion c ON c.id = b.cancion_id ";
 
     private final CancionRepository canciones;
-    private final MetadatosCancionService metadatos;
+    private final RegistroCancionSolicitada registro;
     private final BloqueosVigentes vigentes;
     private final VersionCola versionCola;
     private final EventoOutboxPublisher eventos;
@@ -67,11 +67,11 @@ public class BloqueoContenidoService {
     private final TransactionTemplate transaccion;
     private final Clock clock;
 
-    BloqueoContenidoService(CancionRepository canciones, MetadatosCancionService metadatos, BloqueosVigentes vigentes,
+    BloqueoContenidoService(CancionRepository canciones, RegistroCancionSolicitada registro, BloqueosVigentes vigentes,
                             VersionCola versionCola, EventoOutboxPublisher eventos, AuditoriaService auditoria,
                             JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock) {
         this.canciones = canciones;
-        this.metadatos = metadatos;
+        this.registro = registro;
         this.vigentes = vigentes;
         this.versionCola = versionCola;
         this.eventos = eventos;
@@ -88,13 +88,12 @@ public class BloqueoContenidoService {
      */
     public BloqueoResponse bloquear(UUID establecimientoId, CrearBloqueoRequest request) {
         if (request == null || !VideoIdYoutube.valido(request.videoId())) {
-            throw ApiException.badRequest("INVALID_VIDEO_ID", "'" + (request == null ? null : request.videoId())
-                    + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
+            throw VideoIdYoutube.invalido(request == null ? null : request.videoId());
         }
         Duration duracion = duracion(request);
         MotivoBloqueo motivo = motivo(request.motivoCodigo());
         if (canciones.findByYoutubeVideoIdIn(List.of(request.videoId())).isEmpty()) {
-            metadatos.registrar(metadatos.consultarParaSolicitud(request.videoId(), OrigenBusqueda.STAFF));
+            registro.asegurar(request.videoId(), OrigenBusqueda.STAFF);
         }
         return transaccion.execute(estado -> crear(establecimientoId, request.videoId(), duracion, motivo));
     }

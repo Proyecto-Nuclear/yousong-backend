@@ -2,7 +2,7 @@ package cue.edu.co.yousongbackend.cola;
 
 import cue.edu.co.yousongbackend.catalogo.BloqueosVigentes;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
-import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
+import cue.edu.co.yousongbackend.catalogo.RegistroCancionSolicitada;
 import cue.edu.co.yousongbackend.catalogo.OrigenBusqueda;
 import cue.edu.co.yousongbackend.catalogo.VideoIdYoutube;
 import cue.edu.co.yousongbackend.cola.ColaDtos.ApoyoResponse;
@@ -47,7 +47,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>Concurrency: every change starts with {@link VersionCola#avanzar}, which locks the session row, so queue
  * changes of one session are serialized and each one sees the previous one committed. The unique constraints
  * stay as a backstop: a violation is answered as {@code ALREADY_VOTED}, never as a server error. A song the
- * establishment blocked (see {@code catalogo.BloqueoContenidoService}) is answered 409 {@code SONG_BLOCKED}. A song unknown
+ * establishment blocked (see {@code catalogo.BloqueoContenidoService}) is answered 409 {@code SONG_BLOCKED}, and a song stored as {@code NO_DISPONIBLE} 409 {@code SONG_UNAVAILABLE},
+ * for a new request and for a vote on an active one alike. A song unknown
  * to the catalog is looked up at YouTube BEFORE that transaction, so no provider call holds the lock.
  */
 @Service
@@ -60,7 +61,7 @@ public class SolicitudesService {
     private final VersionCola versionCola;
     private final LimitadorAccionesCola limitador;
     private final CancionRepository canciones;
-    private final MetadatosCancionService metadatos;
+    private final RegistroCancionSolicitada registro;
     private final EventoOutboxPublisher eventos;
     private final BloqueosVigentes bloqueos;
     private final JdbcTemplate jdbc;
@@ -71,7 +72,7 @@ public class SolicitudesService {
 
     SolicitudesService(ColaConsultas consultas, ReglasDeParticipacion reglas, VersionCola versionCola,
                        LimitadorAccionesCola limitador,
-                       CancionRepository canciones, MetadatosCancionService metadatos, EventoOutboxPublisher eventos,
+                       CancionRepository canciones, RegistroCancionSolicitada registro, EventoOutboxPublisher eventos,
                        BloqueosVigentes bloqueos, JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
                        Clock clock,
                        @Value("${app.cola.re-request-minutes:30}") long minutosRepeticion,
@@ -87,7 +88,7 @@ public class SolicitudesService {
         this.versionCola = versionCola;
         this.limitador = limitador;
         this.canciones = canciones;
-        this.metadatos = metadatos;
+        this.registro = registro;
         this.eventos = eventos;
         this.bloqueos = bloqueos;
         this.jdbc = jdbc;
@@ -100,20 +101,19 @@ public class SolicitudesService {
     /**
      * Requests the song for the participant's session, or votes for it when it already has an active request.
      * Not transactional itself: a song the catalog never stored is first looked up at YouTube (one videos.list
-     * unit charged to the participant's establishment, no transaction open) and stored, then one short
+     * unit charged to the participant's establishment, no transaction open; concurrent requests of the same video
+     * share one lookup, see {@link RegistroCancionSolicitada}) and stored, then one short
      * transaction applies the request.
      */
     public ApoyoResponse solicitar(ParticipanteAutenticado participante, String videoId) {
         limitador.registrar(participante.participacionId());
         if (!VideoIdYoutube.valido(videoId)) {
-            throw ApiException.badRequest("INVALID_VIDEO_ID",
-                    "'" + videoId + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
+            throw VideoIdYoutube.invalido(videoId);
         }
         if (canciones.findByYoutubeVideoIdIn(List.of(videoId)).isEmpty()) {
             // A cheap early answer so a paused session does not spend quota; the transaction checks again.
             reglas.exigirAccionesDeCola(participante.establecimientoId(), estadoActual(participante.sesionId()));
-            metadatos.registrar(metadatos.consultarParaSolicitud(videoId,
-                    OrigenBusqueda.participante(participante.establecimientoId())));
+            registro.asegurar(videoId, OrigenBusqueda.participante(participante.establecimientoId()));
         }
         return transaccion.execute(estado -> solicitarEnCola(participante, videoId));
     }
@@ -131,6 +131,7 @@ public class SolicitudesService {
             SolicitudActual solicitud = encontradas.stream().findFirst().orElseThrow(() ->
                     ApiException.notFound("REQUEST_NOT_FOUND", "The request does not exist in this session"));
             exigirNoBloqueada(sesion, solicitud.cancionId());
+            exigirDisponible(solicitud.cancionId());
             if (!solicitud.estado().activa()) {
                 throw ApiException.conflict("REQUEST_NOT_ACTIVE", "The request is no longer in the queue");
             }
@@ -148,7 +149,7 @@ public class SolicitudesService {
                         videoId).stream().findFirst()
                 .orElseThrow(() -> ApiException.notFound("SONG_NOT_FOUND", "The song is not in the catalog"));
         if ("NO_DISPONIBLE".equals(cancion.disponibilidad())) {
-            throw ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
+            throw noDisponible();
         }
         exigirNoBloqueada(sesion, cancion.id());
 
@@ -260,6 +261,14 @@ public class SolicitudesService {
         }
     }
 
+    /** A song YouTube reported unplayable here can be neither requested nor voted, also on an active request. */
+    private void exigirDisponible(UUID cancionId) {
+        if (!jdbc.queryForList("SELECT 1 FROM operacion.cancion WHERE id = ? AND disponibilidad = 'NO_DISPONIBLE'",
+                cancionId).isEmpty()) {
+            throw noDisponible();
+        }
+    }
+
     private boolean yaApoyo(UUID participacionId, UUID sesionId, UUID cancionId) {
         return !jdbc.queryForList("SELECT 1 FROM operacion.voto WHERE participacion_id = ? AND sesion_id = ? "
                 + "AND cancion_id = ?", participacionId, sesionId, cancionId).isEmpty();
@@ -278,6 +287,10 @@ public class SolicitudesService {
 
     private static ApiException noAcepta() {
         return ApiException.conflict("SESSION_NOT_ACCEPTING", "The session is not taking requests or votes right now");
+    }
+
+    private static ApiException noDisponible() {
+        return ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
     }
 
     private static ApiException yaVotado() {

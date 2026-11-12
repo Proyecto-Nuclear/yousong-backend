@@ -96,6 +96,14 @@ class BloqueoContenidoApiTest extends ColaApiTestSupport {
     }
 
     @Test
+    void aHugeInvalidVideoIdIsNotEchoedBack() {
+        HttpResponse<String> response = bloquear(establecimiento().token(), "C".repeat(2 * 1024 * 1024), 10, "OTRO");
+
+        assertProblema(response, 400, "INVALID_VIDEO_ID");
+        assertThat(response.body().length()).isLessThan(1024);
+    }
+
+    @Test
     void aSongCanOnlyHaveOneActiveBlock() {
         Local local = localAbierto();
         String video = videoGuardado();
