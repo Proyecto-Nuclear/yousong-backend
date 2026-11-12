@@ -90,7 +90,7 @@ class ColaEventosApiTest extends ColaApiTestSupport {
             Evento pedida = cliente.hastaVersion(colaVersion(sesion));
             assertThat(pedida.json().get("cola").get(0).get("solicitudId").asString()).isEqualTo(solicitud.toString());
 
-            assertThat(siguiente(sesion, operatorToken()).statusCode()).isEqualTo(200);
+            assertThat(siguiente(local.token()).statusCode()).isEqualTo(200);
             Evento sonando = cliente.hastaVersion(colaVersion(sesion));
             assertThat(sonando.json().get("enReproduccion").get("solicitudId").asString()).isEqualTo(solicitud.toString());
             assertThat(sonando.json().get("cola")).isEmpty();
