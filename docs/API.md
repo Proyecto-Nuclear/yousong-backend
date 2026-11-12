@@ -178,11 +178,20 @@ All counters are **in memory, per server instance**, fixed one-minute windows (r
 | Active requests in the queue | 200 | per session | 409 `QUEUE_FULL` |
 | YouTube search budget | 2500 units/day (~24 uncached searches) | per establishment, all its participants together | 429 `SEARCH_BUDGET_EXHAUSTED` |
 | Participant share of the YouTube quota | 70 % of 9000 units/day | all establishments | 503 `CATALOG_QUOTA_EXCEEDED` |
+| Owner catalog searches | 10/min | per establishment (owner) | 429 `RATE_LIMITED` |
+| Owner suggestions | 60/min | per establishment (owner) | 429 `RATE_LIMITED` |
+| Establishment creation | 5/hour | per client address (`remoteAddr`) | 429 `RATE_LIMITED` "Too many establishments created from this device..." |
+| Owner YouTube budget | 1000 units/day (~9 uncached searches) | per establishment, its owner only (separate from its participants' budget): searches, default-list lookups, block lookups | 429 `SEARCH_BUDGET_EXHAUSTED` |
+| Owner share of the YouTube quota | 25 % of 9000 units/day | all owners together | 503 `CATALOG_QUOTA_EXCEEDED` |
 | SSE streams | 500 | per establishment | 429 `TOO_MANY_STREAMS` |
 | SSE streams | 10 | per client address | 429 `TOO_MANY_STREAMS` |
 
-None of these responses carries `Retry-After`. Back off at least until the next minute for `RATE_LIMITED`;
-`SEARCH_BUDGET_EXHAUSTED` lasts until midnight `America/Los_Angeles` (the YouTube quota day) or a server restart.
+None of these responses carries `Retry-After`. Back off at least until the next minute for `RATE_LIMITED` (the
+next hour for establishment creation); `SEARCH_BUDGET_EXHAUSTED` lasts until midnight `America/Los_Angeles` (the
+YouTube quota day) or a server restart. The participant and owner budgets and shares are separate buckets: an
+owner using up theirs never blocks that bar's patrons, nor the reverse. The remaining 5 % of the quota is a
+reserve for internal use. Many owners together can still use up the owner share and block other owners' new
+lookups until the reset (cached searches and stored songs keep working), but never the patrons' share.
 
 ### 1.7 Idempotency (what is safe to retry)
 
@@ -751,7 +760,8 @@ Response `201`, `Location: /api/mi-establecimiento`, body `Establecimiento`. Cap
 ```
 
 Errors: `400 VALIDATION_ERROR`, `400 INVALID_TIME_ZONE`, `409 ESTABLISHMENT_ALREADY_EXISTS`, `409 SLUG_TAKEN`
-(derived). Events: `configuration.changed`.
+(derived), `429 RATE_LIMITED` (5 attempts per hour per client address, counted for every request with a valid
+body, checked before anything is written). Events: `configuration.changed`.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/mi-establecimiento \
@@ -839,8 +849,11 @@ session opened inside a window is closed automatically when the establishment le
 | `canciones` | string[] | yes | 1-200 video ids, no duplicates | play order (position 1 first) |
 
 Every call creates a **new version** (`version` = previous max for that name + 1); lists are never edited.
-Metadata is fetched from YouTube first (best effort: if the catalog is not configured, unavailable or out of
-quota the list is published without metadata and those fields stay `null`).
+Metadata is fetched from YouTube first, 1 unit per 50 songs whose metadata is missing or expired, charged to the
+owner's daily budget and share (best effort: if the catalog is not configured, unavailable or out of quota the
+list is published without metadata and those fields stay `null`). The exception is the owner's own daily budget:
+once it is used, a list with a song the catalog never stored is refused with `429 SEARCH_BUDGET_EXHAUSTED`; a list
+whose songs are all stored is still published (expired metadata is kept).
 
 Response `201`, `Location: /api/mi-establecimiento/lista-defecto`:
 
@@ -861,7 +874,7 @@ Captured:
 
 Errors (captured): `400 VALIDATION_ERROR` (`canciones` empty/missing/>200: `must contain between 1 and 200
 songs`), `400 INVALID_VIDEO_ID`, `400 DUPLICATE_SONG`, `400 VIDEO_UNAVAILABLE` (YouTube answered that a video
-does not exist or cannot be played).
+does not exist or cannot be played), `429 SEARCH_BUDGET_EXHAUSTED` (see above).
 Events: `default_list.versioned`. A session keeps the version it opened with; the next session uses the newest.
 
 #### GET `/api/mi-establecimiento/lista-defecto` - newest version
@@ -947,25 +960,29 @@ Captured (`mantenimiento/inicio`):
 
 #### GET `/api/mi-establecimiento/catalogo/busqueda?q=&pagina=`
 
-Same parameters and response as the participant search, but: no per-owner rate limit, may spend the whole
-daily quota, and a missing `q` is `400 INVALID_QUERY` (problem). Captured:
+Same parameters and response as the participant search, but: 10 searches/min per establishment (checked before
+anything else, costs no quota), uncached searches are charged to the owner's own daily budget (1000 units, about
+9 uncached searches; a failed provider call is refunded, cached searches are free) and to the owner share of the
+quota (25 %), and a missing `q` is `400 INVALID_QUERY` (problem). Captured:
 
 ```json
 {"resultados":[{"videoId":"vidDespa001","titulo":"Despacito","artista":"LuisFonsi","artistaVerificado":false,"canal":"LuisFonsiVEVO","duracionSegundos":282,"miniaturaUrl":"https://img.test/vidDespa001/mqdefault.jpg"}],"siguientePagina":null}
 ```
 
-Errors: `400 INVALID_QUERY`, `400 INVALID_PAGE`, `404 NO_ESTABLISHMENT`, `503 CATALOG_NOT_CONFIGURED`, `503
-CATALOG_QUOTA_EXCEEDED`, `503 CATALOG_UNAVAILABLE`.
+Errors: `400 INVALID_QUERY`, `400 INVALID_PAGE`, `404 NO_ESTABLISHMENT`, `429 RATE_LIMITED`, `429
+SEARCH_BUDGET_EXHAUSTED` (owner budget used: "Your establishment has used its YouTube lookups for today; songs
+already in the catalog still work. Try again after the daily reset"), `503 CATALOG_NOT_CONFIGURED`, `503
+CATALOG_QUOTA_EXCEEDED` (daily quota or owner share used), `503 CATALOG_UNAVAILABLE`.
 
 #### GET `/api/mi-establecimiento/catalogo/sugerencias?q=`
 
-Same as the participant suggestions, no rate limit. Captured:
+Same as the participant suggestions, 60/min per establishment (`429 RATE_LIMITED`). Captured:
 
 ```json
 {"sugerencias":[{"tipo":"CANCION","texto":"Ojalá que llueva café","cancion":{"videoId":"vidOjala001","titulo":"Ojalá que llueva café","artista":"JuanLuisGuerra","artistaVerificado":false,"canal":"JuanLuisGuerraVEVO","duracionSegundos":250,"miniaturaUrl":"https://img.test/vidOjala001/mqdefault.jpg"}},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody queen"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody lyrics"}]}
 ```
 
-Errors: `400 INVALID_QUERY`, `404 NO_ESTABLISHMENT`.
+Errors: `400 INVALID_QUERY`, `404 NO_ESTABLISHMENT`, `429 RATE_LIMITED`.
 
 ### 3.10 Owner: content blocks
 
@@ -1001,8 +1018,8 @@ Captured:
 ```
 
 Errors (captured): `400 INVALID_VIDEO_ID`, `400 INVALID_BLOCK_DURATION`, `400 INVALID_BLOCK_REASON`, `409
-SONG_ALREADY_BLOCKED`; for a song never stored, `404 SONG_NOT_FOUND`/`409 SONG_UNAVAILABLE`/`503 CATALOG_*`
-(derived). Events: `moderation.changed` (+ `queue.changed` when requests were removed); SSE push only when
+SONG_ALREADY_BLOCKED`; for a song never stored (a 1-unit lookup charged to the owner's daily budget and share),
+`404 SONG_NOT_FOUND`/`409 SONG_UNAVAILABLE`/`429 SEARCH_BUDGET_EXHAUSTED`/`503 CATALOG_*` (derived). Events: `moderation.changed` (+ `queue.changed` when requests were removed); SSE push only when
 requests were removed.
 
 #### GET `/api/mi-establecimiento/bloqueos[?todos=true]`
@@ -1564,9 +1581,9 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `PLAYBACK_IN_PROGRESS` | 409 | siguiente | Reconcile from `enReproduccion`. |
 | `QUEUE_EMPTY` | 409 | siguiente | Wait for requests or fix the default list. |
 | `NO_ACTIVE_PLAYBACK` | 409 | fin, saltar | Already ended: call `siguiente`. |
-| `RATE_LIMITED` | 429 | join, search, suggestions, solicitudes, votos | Back off >= until the next minute. |
+| `RATE_LIMITED` | 429 | join, search, suggestions (participant and owner), solicitudes, votos; POST mi-establecimiento | Back off >= until the next minute (next hour for establishment creation). |
 | `TOO_MANY_STREAMS` | 429 | SSE | Close other streams; retry after >= 30 s. |
-| `SEARCH_BUDGET_EXHAUSTED` | 429 | participant search; solicitudes of a never-stored song | Disable search for today; keep suggestions. |
+| `SEARCH_BUDGET_EXHAUSTED` | 429 | participant and owner search; solicitudes of a never-stored song; owner: lista-defecto with a never-stored song, bloqueos of a never-stored song | Disable search for today; keep suggestions and stored songs. |
 | `CATALOG_QUOTA_EXCEEDED` | 503 | searches; lookups of never-stored songs | Disable search until tomorrow (Pacific midnight). |
 | `CATALOG_UNAVAILABLE` | 503 | same | Retry later with backoff. |
 | `CATALOG_NOT_CONFIGURED` | 503 | same | Server has no YouTube key (dev): use suggestions/stored songs. |
@@ -1623,8 +1640,10 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
     practically unreachable through the API (races only).
 18. **A vote may target the request that is currently playing** (`REPRODUCIENDO` counts as active); it only
     raises `votos`.
-19. **Owner search has no per-user rate limit** and may consume the whole daily YouTube quota, starving
-    participants (they then get `503 CATALOG_QUOTA_EXCEEDED`).
+19. **Owners share 25 % of the daily YouTube quota.** Every owner has a budget of its own, but creating an
+    establishment is self-service, so many accounts together can use up the owner share and block other owners'
+    uncached searches and new-song lookups (`503 CATALOG_QUOTA_EXCEEDED`) until the reset; patrons keep their own
+    share.
 20. **All limits and the quota counters are in memory per instance** and reset on restart; behind a reverse proxy
     without `server.forward-headers-strategy`, every client shares the proxy address, so the per-address join
     and SSE limits become global.
@@ -1650,6 +1669,11 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.youtube.daily-quota-limit` | 9000 | Units/day the server allows itself |
 | `app.youtube.participant-quota-share` | 0.7 | Share of the daily limit for participants |
 | `app.participante.search-units-per-establishment-per-day` | 2500 | Per-establishment participant budget |
+| `app.youtube.owner-quota-share` | 0.25 | Share of the daily limit for all owners together |
+| `app.propietario.search-units-per-establishment-per-day` | 1000 | Per-establishment owner budget (searches, default-list and block lookups) |
+| `app.propietario.search-per-minute` | 10 | Owner catalog searches/min per establishment |
+| `app.propietario.suggestions-per-minute` | 60 | Owner suggestions/min per establishment |
+| `app.propietario.create-per-hour-per-address` | 5 | Establishment creations/hour per client address |
 | `app.youtube.search-cache-minutes` | 60 | Shared search cache |
 | `app.youtube.max-results` | 15 | Results per search page (before filtering unplayable ones) |
 | `app.participante.credential-ttl-hours` | 24 | `pt_` token upper bound |
