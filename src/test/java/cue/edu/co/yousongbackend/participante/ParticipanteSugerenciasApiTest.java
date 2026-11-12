@@ -68,8 +68,8 @@ class ParticipanteSugerenciasApiTest extends ParticipanteApiTestSupport {
         String token = unirse(localAbierto());
 
         assertThat(sugerir(marca(), null).statusCode()).isEqualTo(401);
-        assertCredencialRechazada(sugerir(marca(), adminToken()), "INVALID_CREDENTIAL");
-        assertThat(get("/api/staff/catalogo/sugerencias?q=" + marca(), token).statusCode()).isEqualTo(401);
+        assertCredencialRechazada(sugerir(marca(), tokenSinEstablecimiento()), "INVALID_CREDENTIAL");
+        assertThat(get("/api/mi-establecimiento/catalogo/sugerencias?q=" + marca(), token).statusCode()).isEqualTo(401);
         assertThat(SUGERENCIAS.count()).isZero();
     }
 
@@ -102,9 +102,9 @@ class ParticipanteSugerenciasApiTest extends ParticipanteApiTestSupport {
     }
 
     @Test
-    void staffIsNotLimited() {
+    void ownersAreNotLimited() {
         for (int i = 0; i < 6; i++) {
-            assertThat(get("/api/staff/catalogo/sugerencias?q=" + marca(), operatorToken()).statusCode()).isEqualTo(200);
+            assertThat(get("/api/mi-establecimiento/catalogo/sugerencias?q=" + marca(), propietarioToken()).statusCode()).isEqualTo(200);
         }
     }
 }

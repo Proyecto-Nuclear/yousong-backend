@@ -13,6 +13,11 @@ public interface SesionRepository extends JpaRepository<Sesion, UUID> {
 
     Optional<Sesion> findFirstByEstablecimientoIdAndEstadoIn(UUID establecimientoId, Collection<EstadoSesion> estados);
 
+    /** Only the id, so loading the session afterwards with a lock is not answered from a stale persistence context. */
+    @Query("select s.id from Sesion s where s.establecimientoId = :establecimientoId and s.estado in :estados")
+    Optional<UUID> findIdEnOperacion(@Param("establecimientoId") UUID establecimientoId,
+                                     @Param("estados") Collection<EstadoSesion> estados);
+
     /** Row lock so two closes (or a close and an update) of one session cannot interleave. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Sesion s where s.id = :id")

@@ -32,7 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>A list is never edited: every change publishes a NEW version. A session keeps pointing at the version
  * it opened with, so what played that night stays explainable, and the next session picks up the newest.
- * Authorization is by role only (see {@code SesionService}).
+ * Authorization is ownership: callers pass the establishment of the current owner (see {@code SesionService}).
  */
 @Service
 public class ListaDefectoService {

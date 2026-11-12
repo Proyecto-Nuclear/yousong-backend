@@ -24,7 +24,7 @@ class ListaDefectoEnriquecimientoApiTest extends YoutubeApiTest {
         for (String id : videoIds) {
             ids.append(ids.length() == 0 ? "" : ",").append('"').append(id).append('"');
         }
-        return put("/api/admin/establecimientos/" + local.id() + "/lista-defecto", adminToken(),
+        return put("/api/mi-establecimiento/lista-defecto", local.token(),
                 "{\"canciones\":[" + ids + "]}");
     }
 
@@ -65,7 +65,7 @@ class ListaDefectoEnriquecimientoApiTest extends YoutubeApiTest {
         assertThat(item.get("miniaturaUrl").asString()).isEqualTo("https://img.test/" + id + "/mqdefault.jpg");
 
         // The same shape on the current-list endpoint
-        JsonNode current = json(get("/api/staff/establecimientos/" + local.id() + "/lista-defecto", operatorToken()))
+        JsonNode current = json(get("/api/mi-establecimiento/lista-defecto", local.token()))
                 .get("canciones").get(0);
         assertThat(current.get("titulo").asString()).isEqualTo("La camisa negra");
         assertThat(current.get("duracionSegundos").asInt()).isEqualTo(227);

@@ -310,9 +310,9 @@ class SolicitudesApiTest extends ColaApiTestSupport {
         assertThat(solicitar(null, video).statusCode()).isEqualTo(401);
         assertThat(votar(null, solicitud).statusCode()).isEqualTo(401);
         assertThat(colaParticipante(null).statusCode()).isEqualTo(401);
-        assertCredencialRechazada(solicitar(adminToken(), video), "INVALID_CREDENTIAL");
-        assertCredencialRechazada(votar(operatorToken(), solicitud), "INVALID_CREDENTIAL");
-        assertCredencialRechazada(colaParticipante(adminToken()), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(solicitar(tokenSinEstablecimiento(), video), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(votar(tokenSinEstablecimiento(), solicitud), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(colaParticipante(tokenSinEstablecimiento()), "INVALID_CREDENTIAL");
         assertThat(votos(solicitud)).isEqualTo(1);
     }
 }

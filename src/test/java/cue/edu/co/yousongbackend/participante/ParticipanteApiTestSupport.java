@@ -61,15 +61,32 @@ public abstract class ParticipanteApiTestSupport extends ApiIntegrationTest {
         return json(response).get("token").asString();
     }
 
+    protected static final String CIERRE = "/api/mi-establecimiento/sesion/cierre";
+
     protected UUID abrirSesion(Local local) {
-        HttpResponse<String> response = post("/api/admin/establecimientos/" + local.id() + "/sesiones", adminToken());
+        HttpResponse<String> response = post("/api/mi-establecimiento/sesiones", local.token());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         return UUID.fromString(json(response).get("id").asString());
     }
 
-    protected void cerrarSesion(UUID sesionId) {
-        HttpResponse<String> response = post("/api/admin/sesiones/" + sesionId + "/cierre", adminToken());
+    /** Closes the session in operation of the establishment, as its owner. */
+    protected void cerrarSesion(Local local) {
+        HttpResponse<String> response = post(CIERRE, local.token());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+    }
+
+    /** Closes the given session (it must be the one in operation), as the owner of its establishment. */
+    protected void cerrarSesion(UUID sesionId) {
+        HttpResponse<String> response = post(CIERRE, propietarioDeLaSesion(sesionId));
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT estado FROM operacion.sesion WHERE id = ?", String.class, sesionId))
+                .isEqualTo("CERRADA");
+    }
+
+    /** A valid access token of the owner of the establishment the session belongs to. */
+    protected String propietarioDeLaSesion(UUID sesionId) {
+        return tokenDe(jdbc.queryForObject("SELECT e.propietario_sub FROM operacion.sesion s "
+                + "JOIN operacion.establecimiento e ON e.id = s.establecimiento_id WHERE s.id = ?", String.class, sesionId));
     }
 
     /** An active establishment with an open session. */

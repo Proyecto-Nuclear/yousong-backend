@@ -15,23 +15,18 @@ class TestEndpoints {
         return "pong";
     }
 
-    @GetMapping("/api/staff/ping")
-    String staffPing() {
+    @GetMapping("/api/mi-establecimiento/ping")
+    String ownerPing() {
         return "pong";
     }
 
-    @PostMapping("/api/staff/ping")
-    String staffPost() {
+    @PostMapping("/api/mi-establecimiento/ping")
+    String ownerPost() {
         return "posted";
     }
 
-    @GetMapping("/api/staff/me")
+    @GetMapping("/api/mi-establecimiento/me")
     String me(@AuthenticationPrincipal Jwt jwt) {
         return jwt.getSubject();
-    }
-
-    @GetMapping("/api/admin/ping")
-    String adminPing() {
-        return "pong";
     }
 }

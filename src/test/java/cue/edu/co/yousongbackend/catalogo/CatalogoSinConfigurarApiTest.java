@@ -11,7 +11,7 @@ class CatalogoSinConfigurarApiTest extends ApiIntegrationTest {
 
     @Test
     void searchAnswersNotConfigured() {
-        HttpResponse<String> response = get("/api/staff/catalogo/busqueda?q=juanes", operatorToken());
+        HttpResponse<String> response = get("/api/mi-establecimiento/catalogo/busqueda?q=juanes", propietarioToken());
 
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(json(response).get("code").asString()).isEqualTo("CATALOG_NOT_CONFIGURED");
@@ -19,12 +19,12 @@ class CatalogoSinConfigurarApiTest extends ApiIntegrationTest {
 
     @Test
     void invalidQueriesStillAnswerBadRequest() {
-        assertThat(get("/api/staff/catalogo/busqueda?q=a", operatorToken()).statusCode()).isEqualTo(400);
+        assertThat(get("/api/mi-establecimiento/catalogo/busqueda?q=a", propietarioToken()).statusCode()).isEqualTo(400);
     }
 
     @Test
     void theRestOfTheApplicationWorks() {
-        assertThat(get("/api/staff/establecimientos/" + establecimiento().id() + "/lista-defecto", operatorToken()).statusCode())
+        assertThat(get("/api/mi-establecimiento/lista-defecto", propietarioToken()).statusCode())
                 .isEqualTo(404);
     }
 }
