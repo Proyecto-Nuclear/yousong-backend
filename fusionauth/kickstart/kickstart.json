@@ -73,6 +73,12 @@
             "generateRefreshTokens": true,
             "requireRegistration": true
           },
+          "registrationConfiguration": {
+            "enabled": true,
+            "type": "basic",
+            "loginIdType": "email",
+            "confirmPassword": true
+          },
           "jwtConfiguration": {
             "enabled": true,
             "accessTokenKeyId": "#{asymmetricKeyId}",
