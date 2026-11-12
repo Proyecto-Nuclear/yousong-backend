@@ -19,8 +19,6 @@ repositories {
     mavenCentral()
 }
 
-val jjwtVersion = "0.12.6"
-
 dependencies {
     // Web, real time and validation
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
@@ -34,11 +32,16 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
 
-    // Security (staff roles + technical participant credentials)
+    // Security: stateless resource server. Staff identities live in FusionAuth (self-hosted IdP);
+    // this backend only validates its JWTs through the JWKS endpoint.
     implementation("org.springframework.boot:spring-boot-starter-security")
-    implementation("io.jsonwebtoken:jjwt-api:$jjwtVersion")
-    runtimeOnly("io.jsonwebtoken:jjwt-impl:$jjwtVersion")
-    runtimeOnly("io.jsonwebtoken:jjwt-jackson:$jjwtVersion")
+    implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
+
+    // QR codes for session access
+    implementation("com.google.zxing:core:3.5.4")
+
+    // In-memory caches with expiry (YouTube search results, rate limiting)
+    implementation("com.github.ben-manes.caffeine:caffeine")
 
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

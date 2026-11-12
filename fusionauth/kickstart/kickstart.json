@@ -1,0 +1,144 @@
+{
+  "variables": {
+    "apiKey": "yousong-dev-api-key-not-for-production-0001",
+    "asymmetricKeyId": "#{UUID()}",
+    "applicationId": "c2f6a1b4-3d5e-4f70-8a9b-6e1d2c3b4a59",
+    "clientSecret": "yousong-dev-client-secret-not-for-production",
+    "consoleAdminEmail": "fusionauth-admin@yousong.local",
+    "consoleAdminPassword": "Yousong-Console-Dev-2026!",
+    "consoleAdminUserId": "00000000-0000-4000-8000-0000000000a0",
+    "administradorEmail": "administrador@yousong.local",
+    "administradorPassword": "Yousong-Admin-Dev-2026!",
+    "administradorUserId": "00000000-0000-4000-8000-0000000000a1",
+    "operadorEmail": "operador@yousong.local",
+    "operadorPassword": "Yousong-Oper-Dev-2026!",
+    "operadorUserId": "00000000-0000-4000-8000-0000000000a2",
+    "issuer": "http://127.0.0.1:9011"
+  },
+  "apiKeys": [
+    {
+      "key": "#{apiKey}",
+      "description": "Development API key (login API used by local checks). Never use outside development."
+    }
+  ],
+  "requests": [
+    {
+      "method": "PATCH",
+      "url": "/api/tenant/#{FUSIONAUTH_TENANT_ID}",
+      "body": {
+        "tenant": {
+          "issuer": "#{issuer}"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/key/generate/#{asymmetricKeyId}",
+      "body": {
+        "key": {
+          "algorithm": "RS256",
+          "name": "Yousong access token signing key (RS256)",
+          "length": 2048
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/application/#{applicationId}",
+      "body": {
+        "application": {
+          "name": "Yousong",
+          "roles": [
+            {
+              "name": "ADMINISTRADOR",
+              "description": "Configures schedules, sessions, roles, default list and analytics"
+            },
+            {
+              "name": "OPERADOR",
+              "description": "Supervises the player station, skips songs and moderates content"
+            }
+          ],
+          "oauthConfiguration": {
+            "clientId": "#{applicationId}",
+            "clientSecret": "#{clientSecret}",
+            "authorizedRedirectURLs": [
+              "http://localhost:3000/api/auth/callback/fusionauth",
+              "http://localhost:3000/"
+            ],
+            "logoutURL": "http://localhost:3000/",
+            "enabledGrants": [
+              "authorization_code",
+              "refresh_token"
+            ],
+            "generateRefreshTokens": true,
+            "requireRegistration": true
+          },
+          "jwtConfiguration": {
+            "enabled": true,
+            "accessTokenKeyId": "#{asymmetricKeyId}",
+            "idTokenKeyId": "#{asymmetricKeyId}",
+            "timeToLiveInSeconds": 900,
+            "refreshTokenTimeToLiveInMinutes": 10080
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration/#{consoleAdminUserId}",
+      "body": {
+        "skipRegistrationVerification": true,
+        "user": {
+          "email": "#{consoleAdminEmail}",
+          "password": "#{consoleAdminPassword}",
+          "firstName": "FusionAuth",
+          "lastName": "Console"
+        },
+        "registration": {
+          "applicationId": "#{FUSIONAUTH_APPLICATION_ID}",
+          "roles": [
+            "admin"
+          ]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration/#{administradorUserId}",
+      "body": {
+        "skipRegistrationVerification": true,
+        "user": {
+          "email": "#{administradorEmail}",
+          "password": "#{administradorPassword}",
+          "firstName": "Administrador",
+          "lastName": "Dev"
+        },
+        "registration": {
+          "applicationId": "#{applicationId}",
+          "roles": [
+            "ADMINISTRADOR"
+          ]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration/#{operadorUserId}",
+      "body": {
+        "skipRegistrationVerification": true,
+        "user": {
+          "email": "#{operadorEmail}",
+          "password": "#{operadorPassword}",
+          "firstName": "Operador",
+          "lastName": "Dev"
+        },
+        "registration": {
+          "applicationId": "#{applicationId}",
+          "roles": [
+            "OPERADOR"
+          ]
+        }
+      }
+    }
+  ]
+}

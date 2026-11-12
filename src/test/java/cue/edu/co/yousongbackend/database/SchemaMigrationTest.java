@@ -11,7 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Verifies the Flyway-built schema against the data dictionaries (33 tables, 252 fields). */
+/** Verifies the Flyway-built schema against the data dictionaries (33 tables, 253 fields). */
 @Transactional
 class SchemaMigrationTest extends PostgresIntegrationTest {
 
@@ -28,7 +28,7 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void createsTwoHundredFiftyTwoColumns() {
+    void createsTwoHundredFiftyFiveColumns() {
         Integer columns = jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns c
                 JOIN information_schema.tables t
@@ -36,7 +36,7 @@ class SchemaMigrationTest extends PostgresIntegrationTest {
                 WHERE t.table_type = 'BASE TABLE'
                   AND c.table_schema IN ('operacion', 'integracion', 'analitica')
                 """, Integer.class);
-        assertThat(columns).isEqualTo(252);
+        assertThat(columns).isEqualTo(255);
     }
 
     // ---------- integrity rules ----------
