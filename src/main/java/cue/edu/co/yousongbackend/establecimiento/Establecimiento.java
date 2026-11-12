@@ -39,4 +39,8 @@ public class Establecimiento {
 
     @Column(name = "creado_at", nullable = false)
     private Instant creadoAt = Instant.now();
+
+    /** Identity-provider subject of the owner; NULL for establishments created before ownership existed. Never exposed. */
+    @Column(name = "propietario_sub", length = 64)
+    private String propietarioSub;
 }
