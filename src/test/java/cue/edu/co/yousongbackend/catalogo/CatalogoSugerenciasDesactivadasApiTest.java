@@ -29,7 +29,7 @@ class CatalogoSugerenciasDesactivadasApiTest extends ApiIntegrationTest {
                 UUID.randomUUID(), videoIdAleatorio(), "Local " + m);
         SUGERENCIAS.suggestions("remota " + m);
 
-        HttpResponse<String> response = get("/api/staff/catalogo/sugerencias?q=" + m, operatorToken());
+        HttpResponse<String> response = get("/api/mi-establecimiento/catalogo/sugerencias?q=" + m, propietarioToken());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(json(response).get("sugerencias")).hasSize(1);

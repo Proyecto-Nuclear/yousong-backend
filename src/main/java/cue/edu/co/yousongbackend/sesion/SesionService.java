@@ -3,6 +3,9 @@ package cue.edu.co.yousongbackend.sesion;
 import cue.edu.co.yousongbackend.acceso.AccesoParticipantes;
 import cue.edu.co.yousongbackend.cola.EstadoSolicitud;
 import cue.edu.co.yousongbackend.cola.SolicitudRepository;
+import cue.edu.co.yousongbackend.cola.VersionCola;
+import cue.edu.co.yousongbackend.control.AuditoriaService;
+import cue.edu.co.yousongbackend.control.ResultadoAuditoria;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
 import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
@@ -22,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,8 +33,15 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Opens and closes music sessions. A session is one night of service of one establishment.
  *
- * <p>Known limitation, accepted for the one-establishment pilot: authorization is by role only. Any
- * authenticated administrator can operate any establishment; per-establishment membership is not checked yet.
+ * <p>Authorization is ownership: the owner API passes the establishment of the calling account (see
+ * {@code establecimiento.PropietarioActual}), never an establishment or session id chosen by a client.
+ *
+ * <p>Manual pause: the owner moves the session in operation between ABIERTA and PAUSADA. While PAUSADA nobody
+ * joins, requests or votes (409 SESSION_PAUSED, see {@link ReglasDeParticipacion}); participants keep their
+ * credentials and keep reading the queue and its live stream. Each change publishes {@code session.state_changed}.
+ *
+ * <p>A session cannot be opened while the establishment is paused or in maintenance. It can be opened outside
+ * the weekly windows (the owner decides), but participants can only join once a window is active.
  */
 @Service
 public class SesionService {
@@ -52,14 +63,19 @@ public class SesionService {
     private final EstacionRepository estaciones;
     private final EventoOutboxPublisher eventos;
     private final AccesoParticipantes accesoParticipantes;
+    private final AuditoriaService auditoria;
+    private final VersionCola versionCola;
     private final EntityManager entityManager;
     private final Clock clock;
 
     SesionService(SesionRepository sesiones, EstablecimientoService establecimientos, ListaDefectoRepository listas,
                   SolicitudRepository solicitudes, ReproduccionRepository reproducciones,
                   EstacionRepository estaciones, EventoOutboxPublisher eventos,
-                  AccesoParticipantes accesoParticipantes, EntityManager entityManager, Clock clock) {
+                  AccesoParticipantes accesoParticipantes, AuditoriaService auditoria, VersionCola versionCola,
+                  EntityManager entityManager, Clock clock) {
         this.accesoParticipantes = accesoParticipantes;
+        this.auditoria = auditoria;
+        this.versionCola = versionCola;
         this.sesiones = sesiones;
         this.establecimientos = establecimientos;
         this.listas = listas;
@@ -77,6 +93,12 @@ public class SesionService {
         Establecimiento establecimiento = establecimientos.obtenerBloqueando(establecimientoId);
         if (!establecimiento.isActivo()) {
             throw ApiException.conflict("ESTABLISHMENT_INACTIVE", "The establishment is not active");
+        }
+        if (establecimiento.isEnMantenimiento()) {
+            throw ReglasDeParticipacion.enMantenimiento();
+        }
+        if (establecimiento.isPausado()) {
+            throw ReglasDeParticipacion.pausado();
         }
         if (sesiones.findFirstByEstablecimientoIdAndEstadoIn(establecimientoId, EN_OPERACION).isPresent()) {
             throw ApiException.conflict("SESSION_ALREADY_OPEN", "The establishment already has a session in operation");
@@ -101,6 +123,7 @@ public class SesionService {
         payload.put("lista_version", lista.getVersion());
         eventos.publicar("session.opened", AmbitoEvento.B, PRODUCTOR, UUID.randomUUID(), establecimientoId,
                 sesion.getId(), "SESION", sesion.getId(), sesion.getVersion(), payload);
+        versionCola.notificarCambio(establecimientoId);
 
         return SesionResponse.de(sesion);
     }
@@ -117,7 +140,12 @@ public class SesionService {
         // What was still open is finalized, never deleted: the history of the night stays queryable.
         int pendientes = solicitudes.finalizarAbiertas(sesionId, SOLICITUDES_ABIERTAS,
                 EstadoSolicitud.NO_ATENDIDA_CIERRE, ahora);
-        reproducciones.terminarAbiertas(sesionId, ResultadoReproduccion.INTERRUMPIDA_CIERRE, ahora);
+        int interrumpidas = reproducciones.terminarAbiertas(sesionId, ResultadoReproduccion.INTERRUMPIDA_CIERRE, ahora);
+        // Finalizing requests or the playing song changes the queue: one more queue version (the row is locked).
+        boolean colaCambio = pendientes > 0 || interrumpidas > 0;
+        if (colaCambio) {
+            sesion.setColaVersion(sesion.getColaVersion() + 1);
+        }
         estaciones.deshabilitarDeLaSesion(sesionId);
         // Participants lose access with the session, in the same transaction: from the commit on, every
         // participant call answers SESSION_ENDED. The session row lock above waits for joins in progress.
@@ -131,10 +159,70 @@ public class SesionService {
         payload.put("closed_at", ahora);
         payload.put("pendientes_al_cierre", pendientes);
         payload.put("cierre_version", sesion.getVersion());
-        eventos.publicar("session.closed", AmbitoEvento.B, PRODUCTOR, UUID.randomUUID(), sesion.getEstablecimientoId(),
+        UUID correlacion = UUID.randomUUID();
+        eventos.publicar("session.closed", AmbitoEvento.B, PRODUCTOR, correlacion, sesion.getEstablecimientoId(),
                 sesion.getId(), "SESION", sesion.getId(), sesion.getVersion(), payload);
+        if (colaCambio) {
+            versionCola.publicarCambio(sesion.getEstablecimientoId(), sesion.getId(), sesion.getColaVersion(),
+                    "session.closed", correlacion);
+        }
+        // The public queue now shows CERRADO even when nothing was left in it.
+        versionCola.notificarCambio(sesion.getEstablecimientoId());
 
         return new CierreSesionResponse(SesionResponse.de(sesion), pendientes);
+    }
+
+    /** Pauses the session in operation (404 NO_ACTIVE_SESSION; 409 SESSION_NOT_PAUSABLE unless it is ABIERTA). */
+    @Transactional
+    public SesionResponse pausar(UUID establecimientoId) {
+        return cambiarEstado(establecimientoId, EstadoSesion.ABIERTA, EstadoSesion.PAUSADA, "PAUSA_MANUAL",
+                "SESION_PAUSADA", () -> ApiException.conflict("SESSION_NOT_PAUSABLE", "Only an open session can be paused"));
+    }
+
+    /** Resumes the paused session in operation (404 NO_ACTIVE_SESSION; 409 SESSION_NOT_PAUSED unless PAUSADA). */
+    @Transactional
+    public SesionResponse reanudar(UUID establecimientoId) {
+        return cambiarEstado(establecimientoId, EstadoSesion.PAUSADA, EstadoSesion.ABIERTA, "REANUDACION_MANUAL",
+                "SESION_REANUDADA", () -> ApiException.conflict("SESSION_NOT_PAUSED", "The session is not paused"));
+    }
+
+    private SesionResponse cambiarEstado(UUID establecimientoId, EstadoSesion desde, EstadoSesion hacia, String motivo,
+                                         String accion, Supplier<ApiException> estadoInvalido) {
+        // The row lock serializes this change with closes and queue changes of the same session.
+        Sesion sesion = sesiones.findByIdForUpdate(idEnOperacion(establecimientoId))
+                .filter(bloqueada -> enOperacion(bloqueada.getEstado()))
+                .orElseThrow(() -> ApiException.notFound("NO_ACTIVE_SESSION", "The establishment has no session in operation"));
+        if (sesion.getEstado() != desde) {
+            throw estadoInvalido.get();
+        }
+        sesion.setEstado(hacia);
+        entityManager.flush();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("session_id", sesion.getId());
+        payload.put("from_state", desde.name());
+        payload.put("to_state", hacia.name());
+        payload.put("reason_code", motivo);
+        eventos.publicar("session.state_changed", AmbitoEvento.B, PRODUCTOR, UUID.randomUUID(), establecimientoId,
+                sesion.getId(), "SESION", sesion.getId(), sesion.getVersion(), payload);
+        auditoria.registrar(establecimientoId, accion, "SESION", sesion.getId(), ResultadoAuditoria.EXITO);
+        // The public queue shows the new state (PAUSADO / ABIERTO) to live subscribers once this commits.
+        versionCola.notificarCambio(establecimientoId);
+        return SesionResponse.de(sesion);
+    }
+
+    /** Closes the session in operation of the establishment (404 NO_ACTIVE_SESSION when there is none). */
+    @Transactional
+    public CierreSesionResponse cerrarActual(UUID establecimientoId) {
+        // Only the id is read here: cerrar() then loads the row with its lock, so a concurrent close is seen fresh.
+        return cerrar(idEnOperacion(establecimientoId));
+    }
+
+    /** The id of the session in operation of the establishment (404 NO_ACTIVE_SESSION when there is none). */
+    @Transactional(readOnly = true)
+    public UUID idEnOperacion(UUID establecimientoId) {
+        return sesiones.findIdEnOperacion(establecimientoId, EN_OPERACION)
+                .orElseThrow(() -> ApiException.notFound("NO_ACTIVE_SESSION", "The establishment has no session in operation"));
     }
 
     @Transactional(readOnly = true)

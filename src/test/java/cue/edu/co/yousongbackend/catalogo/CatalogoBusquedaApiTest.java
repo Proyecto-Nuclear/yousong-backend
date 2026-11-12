@@ -16,12 +16,12 @@ import tools.jackson.databind.JsonNode;
 class CatalogoBusquedaApiTest extends YoutubeApiTest {
 
     private HttpResponse<String> buscar(String consulta) {
-        return get("/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), operatorToken());
+        return get("/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), propietarioToken());
     }
 
     private HttpResponse<String> buscar(String consulta, String pagina) {
-        return get("/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8)
-                + "&pagina=" + URLEncoder.encode(pagina, StandardCharsets.UTF_8), operatorToken());
+        return get("/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8)
+                + "&pagina=" + URLEncoder.encode(pagina, StandardCharsets.UTF_8), propietarioToken());
     }
 
     private static String code(HttpResponse<String> response) {
@@ -284,7 +284,7 @@ class CatalogoBusquedaApiTest extends YoutubeApiTest {
             assertThat(response.statusCode()).as("'%s'", invalid).isEqualTo(400);
             assertThat(code(response)).isEqualTo("INVALID_QUERY");
         }
-        assertThat(code(get("/api/staff/catalogo/busqueda", operatorToken()))).isEqualTo("INVALID_QUERY");
+        assertThat(code(get("/api/mi-establecimiento/catalogo/busqueda", propietarioToken()))).isEqualTo("INVALID_QUERY");
         assertThat(YOUTUBE.count()).isZero();
     }
 
@@ -304,15 +304,17 @@ class CatalogoBusquedaApiTest extends YoutubeApiTest {
         assertThat(YOUTUBE.count()).isZero();
     }
 
-    // ---------- roles ----------
+    // ---------- access ----------
 
     @Test
-    void anonymousCallersAreRejectedAndStaffAreServed() {
+    void anonymousCallersAreRejectedOwnersAreServedAndAccountsWithoutAnEstablishmentAreNot() {
         proveedorDevuelve(null, LocalYoutubeServer.video(videoIdAleatorio()));
-        String path = "/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consultaNueva(), StandardCharsets.UTF_8);
+        String path = "/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consultaNueva(), StandardCharsets.UTF_8);
 
         assertThat(get(path, null).statusCode()).isEqualTo(401);
-        assertThat(get(path, operatorToken()).statusCode()).isEqualTo(200);
-        assertThat(get(path, adminToken()).statusCode()).isEqualTo(200);
+        assertThat(get(path, propietarioToken()).statusCode()).isEqualTo(200);
+        HttpResponse<String> sinLocal = get(path, tokenSinEstablecimiento());
+        assertThat(sinLocal.statusCode()).isEqualTo(404);
+        assertThat(code(sinLocal)).isEqualTo("NO_ESTABLISHMENT");
     }
 }

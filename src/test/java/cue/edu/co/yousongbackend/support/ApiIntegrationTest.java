@@ -41,13 +41,19 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
 
     protected static final String PUBLIC_BASE_URL = "https://yousong.test";
 
-    private static final String ISSUER = "test-issuer";
-    private static final String AUDIENCE = "11111111-2222-3333-4444-555555555555";
+    protected static final String ISSUER = "test-issuer";
+    protected static final String AUDIENCE = "11111111-2222-3333-4444-555555555555";
     private static final RSAKey SIGNING_KEY = generateKey();
     private static final LocalJwksServer JWKS = new LocalJwksServer(SIGNING_KEY);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    public record Local(UUID id, String slug) {
+    /** A fixture establishment and the identity-provider subject of its owner. */
+    public record Local(UUID id, String slug, String propietario) {
+
+        /** A valid access token of the owner of this establishment. */
+        public String token() {
+            return tokenDe(propietario);
+        }
     }
 
     @LocalServerPort
@@ -69,25 +75,35 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
 
     // ---------- tokens ----------
 
-    protected static String adminToken() {
-        return token(List.of("ADMINISTRADOR"));
+    /** A valid access token (no roles, like a self-registered account) for the given subject. */
+    protected static String tokenDe(String sub) {
+        return token(sub, "at", AUDIENCE, ISSUER, Instant.now().plusSeconds(3600));
     }
 
-    protected static String operatorToken() {
-        return token(List.of("OPERADOR"));
+    /** A valid access token of an account that owns no establishment. */
+    protected static String tokenSinEstablecimiento() {
+        return tokenDe(UUID.randomUUID().toString());
     }
 
-    private static String token(List<String> roles) {
+    /** A valid access token of the owner of a fresh establishment (for operations that only need one). */
+    protected String propietarioToken() {
+        return establecimiento().token();
+    }
+
+    /** A signed token with any claims, to test what the API rejects; {@code null} leaves a claim out. */
+    protected static String token(String sub, String tokenType, String audience, String issuer, Instant expires) {
         try {
-            JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                    .issuer(ISSUER)
-                    .audience(AUDIENCE)
-                    .subject(UUID.randomUUID().toString())
-                    .claim("roles", roles)
-                    .claim("tty", "at")
+            JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
+                    .issuer(issuer)
+                    .audience(audience)
+                    .subject(sub)
+                    .claim("roles", List.of())
                     .issueTime(new Date())
-                    .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
-                    .build();
+                    .expirationTime(Date.from(expires));
+            if (tokenType != null) {
+                builder.claim("tty", tokenType);
+            }
+            JWTClaimsSet claims = builder.build();
             SignedJWT jwt = new SignedJWT(
                     new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(SIGNING_KEY.getKeyID()).build(), claims);
             jwt.sign(new RSASSASigner(SIGNING_KEY));
@@ -160,9 +176,18 @@ public abstract class ApiIntegrationTest extends PostgresIntegrationTest {
     protected Local establecimiento(String zonaHoraria, boolean activo) {
         UUID id = UUID.randomUUID();
         String slug = "local-" + id.toString().replace("-", "").substring(0, 10);
-        jdbc.update("INSERT INTO operacion.establecimiento (id, nombre, qr_slug, zona_horaria, activo) "
-                + "VALUES (?, 'Local de prueba', ?, ?, ?)", id, slug, zonaHoraria, activo);
-        return new Local(id, slug);
+        String propietario = UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO operacion.establecimiento (id, nombre, qr_slug, zona_horaria, activo, propietario_sub) "
+                + "VALUES (?, 'Local de prueba', ?, ?, ?, ?)", id, slug, zonaHoraria, activo, propietario);
+        return new Local(id, slug, propietario);
+    }
+
+    /** An establishment created before ownership existed: no account can reach it. */
+    protected Local establecimientoSinPropietario() {
+        UUID id = UUID.randomUUID();
+        String slug = "huerfano-" + id.toString().replace("-", "").substring(0, 10);
+        jdbc.update("INSERT INTO operacion.establecimiento (id, nombre, qr_slug) VALUES (?, 'Sin dueno', ?)", id, slug);
+        return new Local(id, slug, null);
     }
 
     protected UUID listaDefecto(UUID establecimientoId, String nombre, String creadoAt) {

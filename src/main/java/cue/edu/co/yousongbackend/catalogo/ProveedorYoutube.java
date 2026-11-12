@@ -106,6 +106,26 @@ public class ProveedorYoutube {
         return detalles(videoIds);
     }
 
+    /**
+     * videos.list charged to {@code origen}: a participant call reserves its units (one per batch of 50) from the
+     * participant share and the establishment budget first, and gets them back when the provider fails, exactly
+     * like the details step of a participant search.
+     */
+    public List<VideoYoutube> obtener(Collection<String> videoIds, OrigenBusqueda origen) {
+        if (origen.esStaff()) {
+            return obtener(videoIds);
+        }
+        permitir();
+        int unidades = CuotaYoutube.COSTO_DETALLES * YoutubeClient.lotes(videoIds.size());
+        LocalDate dia = cuota.reservar(origen.establecimientoId(), unidades);
+        try {
+            return ejecutar(0, () -> cliente.obtener(videoIds));
+        } catch (YoutubeException e) {
+            cuota.devolver(origen.establecimientoId(), dia, unidades);
+            throw e;
+        }
+    }
+
     private List<VideoYoutube> detalles(Collection<String> videoIds) {
         return ejecutar(CuotaYoutube.COSTO_DETALLES * YoutubeClient.lotes(videoIds.size()), () -> cliente.obtener(videoIds));
     }

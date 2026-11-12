@@ -62,8 +62,8 @@ class ParticipanteCuotaCompartidaApiTest extends ParticipanteApiTestSupport {
         assertThat(buscar(unirse(localAbierto())).statusCode()).as("a third establishment too").isEqualTo(503);
         assertThat(YOUTUBE.count("/search")).isEqualTo(5);
 
-        HttpResponse<String> staff = get("/api/staff/catalogo/busqueda?q="
-                + URLEncoder.encode(consultaNueva(), StandardCharsets.UTF_8), operatorToken());
+        HttpResponse<String> staff = get("/api/mi-establecimiento/catalogo/busqueda?q="
+                + URLEncoder.encode(consultaNueva(), StandardCharsets.UTF_8), propietarioToken());
         assertThat(staff.statusCode()).as(staff.body()).isEqualTo(200);
     }
 }

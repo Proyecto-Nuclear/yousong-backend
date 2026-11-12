@@ -103,7 +103,7 @@ class ParticipanteCatalogoApiTest extends ParticipanteApiTestSupport {
     void searchingRequiresAParticipantCredential() {
         assertThat(buscar(consultaNueva(), null).statusCode()).isEqualTo(401);
         assertCredencialRechazada(buscar(consultaNueva(), "pt_not-a-real-credential"), "INVALID_CREDENTIAL");
-        assertCredencialRechazada(buscar(consultaNueva(), adminToken()), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(buscar(consultaNueva(), tokenSinEstablecimiento()), "INVALID_CREDENTIAL");
         assertThat(YOUTUBE.count()).as("the provider is never called for an unauthenticated caller").isZero();
     }
 

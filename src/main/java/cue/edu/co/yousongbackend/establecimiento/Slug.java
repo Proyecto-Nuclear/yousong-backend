@@ -10,7 +10,7 @@ import java.util.Locale;
  */
 final class Slug {
 
-    /** The column holds 80 characters; this leaves room for a "-NN" suffix when the name is already taken. */
+    /** The column holds 80 characters; this leaves room for the "-xxxxxx" random suffix of generated slugs. */
     static final int MAX_BASE_LENGTH = 70;
 
     private static final String FALLBACK = "local";

@@ -12,25 +12,21 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Stateless OAuth2 resource server. Staff identities live in the identity provider (FusionAuth);
- * this backend only validates the access tokens it issues (signature through JWKS, issuer, audience,
- * expiry) and maps the {@code roles} claim to Spring authorities.
+ * Stateless OAuth2 resource server. Establishment owners register and sign in with the identity provider
+ * (FusionAuth); this backend only validates the access tokens it issues (signature through JWKS, issuer,
+ * audience, expiry, token type). Roles play no part: any valid access token of the application reaches the
+ * owner API, and what it may touch is decided by ownership ({@code establecimiento.PropietarioActual}).
  *
  * <p>Token validation itself is configured with {@code spring.security.oauth2.resourceserver.jwt.*}.
  */
 @Configuration
 class SecurityConfig {
-
-    static final String ADMINISTRADOR = "ADMINISTRADOR";
-    static final String OPERADOR = "OPERADOR";
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http) throws Exception {
@@ -45,15 +41,15 @@ class SecurityConfig {
                         // turn every error of a public endpoint into a 401 for anonymous callers.
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info", "/api/public/**").permitAll()
-                        // Any other actuator endpoint someone exposes later is administrator-only.
-                        .requestMatchers("/actuator/**").hasRole(ADMINISTRADOR)
-                        .requestMatchers("/api/admin/**").hasRole(ADMINISTRADOR)
-                        .requestMatchers("/api/staff/**").hasAnyRole(ADMINISTRADOR, OPERADOR)
+                        // Anyone may register an account, so a valid token is no privilege: any other actuator
+                        // endpoint someone exposes later stays closed.
+                        .requestMatchers("/actuator/**").denyAll()
+                        // The caller's own establishment, resolved from the token subject (never from the URL).
+                        .requestMatchers("/api/mi-establecimiento/**").authenticated()
                         // Deny by default: a new route needs an explicit rule above (and a test), so a
                         // valid token alone never opens an endpoint nobody thought about.
                         .anyRequest().denyAll())
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
         return http.build();
     }
 
@@ -67,17 +63,6 @@ class SecurityConfig {
     @Bean
     OAuth2TokenValidator<Jwt> accessTokenOnlyValidator() {
         return new JwtClaimValidator<String>("tty", "at"::equals);
-    }
-
-    /** FusionAuth puts the user's application roles in a plain {@code roles} claim (no prefix). */
-    private JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("roles");
-        authorities.setAuthorityPrefix("ROLE_");
-
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
-        return converter;
     }
 
     @Bean

@@ -52,6 +52,11 @@ services:
       FUSIONAUTH_APP_URL: http://fusionauth:9011
       SEARCH_TYPE: database
       # Kickstart only runs on the first start, against an empty FusionAuth database.
+      # It enables self-service registration (application registrationConfiguration: basic, email login):
+      # an establishment owner signs up from the hosted login page ("Create an account") and gets no role.
+      # Dev only: neither email nor registration verification is required because there is no SMTP here.
+      # Production must configure SMTP and turn on email verification (tenant) and/or registration
+      # verification (application, unverified behavior "Gated") so unverified accounts cannot sign in.
       FUSIONAUTH_APP_KICKSTART_FILE: /usr/local/fusionauth/kickstart/kickstart.json
     ports:
       # Loopback only: the kickstart API key is a development superuser key.

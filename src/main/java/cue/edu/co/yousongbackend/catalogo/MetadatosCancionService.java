@@ -9,9 +9,11 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Keeps the YouTube metadata of stored songs (title, channel, thumbnail, duration, availability) up to date.
@@ -70,6 +72,38 @@ public class MetadatosCancionService {
             }
         }
         return porId;
+    }
+
+    /**
+     * Asks YouTube about one video a participant wants to request (one videos.list unit, charged to
+     * {@code origen}). Unlike {@link #consultar}, this is not best effort: without an answer there is nothing
+     * to request. No transaction: call it before opening one.
+     *
+     * @throws ApiException 404 {@code SONG_NOT_FOUND} when YouTube does not know the video, 409
+     *                      {@code SONG_UNAVAILABLE} when it cannot be played here, and the catalog errors of a
+     *                      search (503 not configured / unavailable / quota, 429 establishment budget)
+     */
+    public VideoYoutube consultarParaSolicitud(String videoId, OrigenBusqueda origen) {
+        List<VideoYoutube> respuesta;
+        try {
+            respuesta = proveedor.obtener(List.of(videoId), origen);
+        } catch (YoutubeException e) {
+            throw e.aApi();
+        }
+        VideoYoutube video = respuesta.stream().filter(v -> videoId.equals(v.videoId())).findFirst()
+                .orElseThrow(() -> ApiException.notFound("SONG_NOT_FOUND", "The video '" + videoId
+                        + "' does not exist on YouTube"));
+        if (!video.disponible()) {
+            throw ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
+        }
+        return video;
+    }
+
+    /** Registers the video if it is new and stores what YouTube said about it, in its own short transaction. */
+    @Transactional
+    public void registrar(VideoYoutube video) {
+        canciones.registrarSiNoExiste(UUID.randomUUID(), video.videoId());
+        guardar(Map.of(video.videoId(), video));
     }
 
     /** Stores the fetched metadata. Rows are written in video id order, so concurrent writers cannot deadlock. */

@@ -1,41 +1,47 @@
 package cue.edu.co.yousongbackend.sesion;
 
+import cue.edu.co.yousongbackend.establecimiento.PropietarioActual;
 import java.net.URI;
-import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Opening and closing are administrator operations ({@code /api/admin/**}); any staff member can read the
- * current session ({@code /api/staff/**}). The roles are enforced by {@code SecurityConfig}.
- */
+/** The owner opens, reads, pauses, resumes and closes the session of their own establishment (see {@link PropietarioActual}). */
 @RestController
 class SesionController {
 
     private final SesionService service;
+    private final PropietarioActual propietario;
 
-    SesionController(SesionService service) {
+    SesionController(SesionService service, PropietarioActual propietario) {
         this.service = service;
+        this.propietario = propietario;
     }
 
-    @PostMapping("/api/admin/establecimientos/{establecimientoId}/sesiones")
-    ResponseEntity<SesionResponse> abrir(@PathVariable UUID establecimientoId) {
-        SesionResponse sesion = service.abrir(establecimientoId);
-        return ResponseEntity
-                .created(URI.create("/api/staff/establecimientos/" + establecimientoId + "/sesion-actual"))
-                .body(sesion);
+    @PostMapping("/api/mi-establecimiento/sesiones")
+    ResponseEntity<SesionResponse> abrir() {
+        SesionResponse sesion = service.abrir(propietario.establecimientoId());
+        return ResponseEntity.created(URI.create("/api/mi-establecimiento/sesion-actual")).body(sesion);
     }
 
-    @PostMapping("/api/admin/sesiones/{sesionId}/cierre")
-    CierreSesionResponse cerrar(@PathVariable UUID sesionId) {
-        return service.cerrar(sesionId);
+    @PostMapping("/api/mi-establecimiento/sesion/cierre")
+    CierreSesionResponse cerrar() {
+        return service.cerrarActual(propietario.establecimientoId());
     }
 
-    @GetMapping("/api/staff/establecimientos/{establecimientoId}/sesion-actual")
-    SesionResponse sesionActual(@PathVariable UUID establecimientoId) {
-        return service.sesionActual(establecimientoId);
+    @PostMapping("/api/mi-establecimiento/sesion/pausa")
+    SesionResponse pausar() {
+        return service.pausar(propietario.establecimientoId());
+    }
+
+    @PostMapping("/api/mi-establecimiento/sesion/reanudacion")
+    SesionResponse reanudar() {
+        return service.reanudar(propietario.establecimientoId());
+    }
+
+    @GetMapping("/api/mi-establecimiento/sesion-actual")
+    SesionResponse sesionActual() {
+        return service.sesionActual(propietario.establecimientoId());
     }
 }

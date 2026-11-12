@@ -4,6 +4,7 @@ import cue.edu.co.yousongbackend.catalogo.Cancion;
 import cue.edu.co.yousongbackend.catalogo.ArtistaDesdeCanal;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
 import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
+import cue.edu.co.yousongbackend.catalogo.VideoIdYoutube;
 import cue.edu.co.yousongbackend.catalogo.VideoYoutube;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
 import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
@@ -20,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -32,13 +32,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>A list is never edited: every change publishes a NEW version. A session keeps pointing at the version
  * it opened with, so what played that night stays explainable, and the next session picks up the newest.
- * Authorization is by role only (see {@code SesionService}).
+ * Authorization is ownership: callers pass the establishment of the current owner (see {@code SesionService}).
  */
 @Service
 public class ListaDefectoService {
 
     private static final String NOMBRE_POR_DEFECTO = "General";
-    private static final Pattern VIDEO_ID = Pattern.compile("[A-Za-z0-9_-]{11}");
 
     private final ListaDefectoRepository listas;
     private final ItemListaRepository items;
@@ -164,7 +163,7 @@ public class ListaDefectoService {
     private static List<String> validarCanciones(List<String> videoIds) {
         Set<String> vistos = new HashSet<>();
         for (String videoId : videoIds) {
-            if (videoId == null || !VIDEO_ID.matcher(videoId).matches()) {
+            if (!VideoIdYoutube.valido(videoId)) {
                 throw ApiException.badRequest("INVALID_VIDEO_ID",
                         "'" + videoId + "' is not a YouTube video id (11 characters: letters, digits, '-' or '_')");
             }

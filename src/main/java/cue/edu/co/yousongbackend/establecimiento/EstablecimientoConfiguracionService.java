@@ -1,61 +1,69 @@
 package cue.edu.co.yousongbackend.establecimiento;
 
-import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
-import cue.edu.co.yousongbackend.integracion.EventoOutboxPublisher;
 import cue.edu.co.yousongbackend.sesion.SesionService;
 import cue.edu.co.yousongbackend.shared.persistence.BloqueoTransaccional;
 import cue.edu.co.yousongbackend.shared.web.ApiException;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import org.springframework.data.domain.Sort;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Creates and updates establishments. Authorization is by role only (see {@code SesionService}).
- * Every change is announced with a {@code configuration.changed} event in the same transaction.
+ * Creates and updates establishments. Authorization is ownership: callers pass the establishment of the
+ * current owner (see {@link PropietarioActual}), never an id chosen by a client. One account owns at most one
+ * establishment. Every change is announced with a {@code configuration.changed} event in the same transaction.
  */
 @Service
 public class EstablecimientoConfiguracionService {
 
     private static final String DEFAULT_TIME_ZONE = "America/Bogota";
-    private static final String EVENTO = "configuration.changed";
-    private static final String AGREGADO = "ESTABLECIMIENTO";
-    private static final int MAX_SLUG_ATTEMPTS = 50;
+    private static final int MAX_SLUG_ATTEMPTS = 20;
+    private static final int SLUG_SUFFIX_LENGTH = 6;
+    private static final String SLUG_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+    /** Arbitrates two creations by one account; the advisory lock below normally prevents reaching it. */
+    private static final String OWNER_UNIQUE_INDEX = "ux_establecimiento_propietario_sub";
+
+    private final SecureRandom random = new SecureRandom();
 
     private final EstablecimientoRepository repository;
     private final EstablecimientoService establecimientos;
     private final SesionService sesiones;
-    private final EventoOutboxPublisher eventos;
+    private final CambiosConfiguracion cambios;
     private final EntityManager entityManager;
     private final BloqueoTransaccional bloqueos;
     private final Clock clock;
 
     EstablecimientoConfiguracionService(EstablecimientoRepository repository, EstablecimientoService establecimientos,
-                                        SesionService sesiones, EventoOutboxPublisher eventos,
+                                        SesionService sesiones, CambiosConfiguracion cambios,
                                         EntityManager entityManager, BloqueoTransaccional bloqueos, Clock clock) {
         this.repository = repository;
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
-        this.eventos = eventos;
+        this.cambios = cambios;
         this.entityManager = entityManager;
         this.bloqueos = bloqueos;
         this.clock = clock;
     }
 
+    /** Creates the establishment of the account {@code propietarioSub}, which becomes its owner. */
     @Transactional
-    public EstablecimientoResponse crear(CrearEstablecimientoRequest request) {
+    public EstablecimientoResponse crear(String propietarioSub, CrearEstablecimientoRequest request) {
         String zona = request.zonaHoraria() == null ? DEFAULT_TIME_ZONE : validarZona(request.zonaHoraria());
-        // "This slug is free" is a rule about a row that does not exist yet, so a row lock cannot protect it.
-        // Creating an establishment is rare, so serializing it is cheap and removes the check-then-insert race.
+        // "This slug is free" and "this account has no establishment" are rules about rows that do not exist
+        // yet, so a row lock cannot protect them. Creating an establishment is rare, so serializing it is cheap
+        // and removes both check-then-insert races (a double click of one owner included).
         bloqueos.tomar(BloqueoTransaccional.Clave.CREACION_DE_ESTABLECIMIENTO);
+        if (repository.existsByPropietarioSub(propietarioSub)) {
+            throw yaTieneEstablecimiento();
+        }
         String slug = request.qrSlug() != null ? slugExplicito(request.qrSlug()) : slugGenerado(request.nombre());
 
         Establecimiento establecimiento = new Establecimiento();
@@ -63,9 +71,18 @@ public class EstablecimientoConfiguracionService {
         establecimiento.setNombre(request.nombre().strip());
         establecimiento.setQrSlug(slug);
         establecimiento.setZonaHoraria(zona);
+        establecimiento.setPropietarioSub(propietarioSub);
         establecimiento.setCreadoAt(clock.instant().truncatedTo(ChronoUnit.MICROS));
-        entityManager.persist(establecimiento);
-        entityManager.flush();
+        try {
+            entityManager.persist(establecimiento);
+            entityManager.flush();
+        } catch (PersistenceException e) {
+            // The injected EntityManager does not translate exceptions: recognise the owner index by name.
+            if (violaIndice(e, OWNER_UNIQUE_INDEX)) {
+                throw yaTieneEstablecimiento();
+            }
+            throw e;
+        }
 
         publicarCambio(establecimiento, List.of("nombre", "qr_slug", "zona_horaria", "activo"));
         return EstablecimientoResponse.de(establecimiento);
@@ -108,20 +125,21 @@ public class EstablecimientoConfiguracionService {
         return EstablecimientoResponse.de(establecimientos.obtener(id));
     }
 
-    @Transactional(readOnly = true)
-    public List<EstablecimientoResponse> listar() {
-        return repository.findAll(Sort.by("nombre")).stream().map(EstablecimientoResponse::de).toList();
+    private static ApiException yaTieneEstablecimiento() {
+        return ApiException.conflict("ESTABLISHMENT_ALREADY_EXISTS", "This account already has an establishment");
+    }
+
+    private static boolean violaIndice(Throwable error, String indice) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof ConstraintViolationException violacion && indice.equals(violacion.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void publicarCambio(Establecimiento establecimiento, List<String> campos) {
-        long version = eventos.siguienteVersion(AGREGADO, establecimiento.getId(), EVENTO);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("entity_type", AGREGADO);
-        payload.put("entity_ref", establecimiento.getId());
-        payload.put("version", version);
-        payload.put("field_codes", campos);
-        eventos.publicar(EVENTO, AmbitoEvento.O, "backend.configuracion", UUID.randomUUID(), establecimiento.getId(),
-                null, AGREGADO, establecimiento.getId(), version, payload);
+        cambios.publicar(establecimiento.getId(), campos);
     }
 
     private String slugExplicito(String slug) {
@@ -131,16 +149,24 @@ public class EstablecimientoConfiguracionService {
         return slug;
     }
 
+    /** The name as a slug plus a short random suffix, so a public QR address cannot be guessed from the name. */
     private String slugGenerado(String nombre) {
         String base = Slug.de(nombre);
-        String candidato = base;
-        for (int n = 2; repository.existsByQrSlug(candidato); n++) {
-            if (n > MAX_SLUG_ATTEMPTS) {
-                throw ApiException.conflict("SLUG_TAKEN", "Could not generate a free QR slug; send an explicit qrSlug");
+        for (int intento = 0; intento < MAX_SLUG_ATTEMPTS; intento++) {
+            String candidato = base + "-" + sufijoAleatorio();
+            if (!repository.existsByQrSlug(candidato)) {
+                return candidato;
             }
-            candidato = base + "-" + n;
         }
-        return candidato;
+        throw ApiException.conflict("SLUG_TAKEN", "Could not generate a free QR slug; send an explicit qrSlug");
+    }
+
+    private String sufijoAleatorio() {
+        StringBuilder sufijo = new StringBuilder(SLUG_SUFFIX_LENGTH);
+        for (int i = 0; i < SLUG_SUFFIX_LENGTH; i++) {
+            sufijo.append(SLUG_SUFFIX_ALPHABET.charAt(random.nextInt(SLUG_SUFFIX_ALPHABET.length())));
+        }
+        return sufijo.toString();
     }
 
     private static String validarZona(String zona) {
