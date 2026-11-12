@@ -175,6 +175,9 @@ class BloqueoContenidoApiTest extends ColaApiTestSupport {
                 .isEqualTo("REPRODUCIENDO");
         assertThat(videoSonando(sesion)).isEqualTo(video);
         assertProblema(votar(unirse(local), solicitud), 409, "SONG_BLOCKED");
+        assertThat(saltar("CONTENIDO_INAPROPIADO", local.token()).statusCode()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT estado FROM operacion.solicitud WHERE id = ?", String.class, solicitud))
+                .isEqualTo("SALTADA");
     }
 
     @Test

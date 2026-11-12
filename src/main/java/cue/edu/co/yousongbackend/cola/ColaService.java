@@ -94,8 +94,8 @@ public class ColaService {
             items.add(new ItemCola(fila.solicitudId(), i + 1, fila.votos(), fila.cancion(), esperas.get(i),
                     apoyadas == null ? null : apoyadas.contains(fila.cancionId())));
         }
-        EnReproduccion enReproduccion = sonando.map(s -> new EnReproduccion(s.solicitudId(), s.cancion(), s.iniciadaAt(),
-                restante, apoyadas == null ? null : apoyadas.contains(s.cancionId()))).orElse(null);
+        EnReproduccion enReproduccion = sonando.map(s -> new EnReproduccion(s.solicitudId(), s.origen(), s.cancion(),
+                s.iniciadaAt(), restante, apoyadas == null ? null : apoyadas.contains(s.cancionId()))).orElse(null);
         return new ColaResponse(sesion.getColaVersion(), EstadoServicio.de(sesion.getEstado()), enReproduccion, items);
     }
 }

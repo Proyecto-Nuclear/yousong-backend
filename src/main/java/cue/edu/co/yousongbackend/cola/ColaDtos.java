@@ -42,8 +42,12 @@ public final class ColaDtos {
                            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean votado) {
     }
 
-    /** The song playing now; {@code solicitudId} is null when it comes from the default list. */
-    public record EnReproduccion(UUID solicitudId, CancionCola cancion, Instant iniciadaAt, long restanteSegundos,
+    /**
+     * The song playing now. {@code origen} is {@code SOLICITUD} (a request of the queue) or {@code DEFECTO} (the
+     * default list, which covers an empty queue); {@code solicitudId} is null for a default-list song.
+     */
+    public record EnReproduccion(UUID solicitudId, String origen, CancionCola cancion, Instant iniciadaAt,
+                                 long restanteSegundos,
                                  @JsonInclude(JsonInclude.Include.NON_NULL) Boolean votado) {
     }
 

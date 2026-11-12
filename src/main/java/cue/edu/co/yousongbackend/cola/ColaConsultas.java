@@ -26,8 +26,11 @@ public class ColaConsultas {
     public record Fila(UUID solicitudId, UUID cancionId, long votos, CancionCola cancion, Integer duracionOperativa) {
     }
 
-    /** The playback attempt open in the session. {@code solicitudId} is null for a default-list song. */
-    public record Sonando(UUID reproduccionId, UUID solicitudId, UUID cancionId, CancionCola cancion,
+    /**
+     * The playback attempt open in the session. {@code origen} is {@code SOLICITUD} or {@code DEFECTO}
+     * ({@code reproduccion.origen}); {@code solicitudId} is null for a default-list song.
+     */
+    public record Sonando(UUID reproduccionId, String origen, UUID solicitudId, UUID cancionId, CancionCola cancion,
                           Instant iniciadaAt, Integer duracionOperativa) {
     }
 
@@ -53,12 +56,13 @@ public class ColaConsultas {
     }
 
     public Optional<Sonando> sonando(UUID sesionId) {
-        return jdbc.query("SELECT r.id, r.solicitud_id, r.cancion_id, r.iniciada_at, " + CANCION + " "
+        return jdbc.query("SELECT r.id, r.origen, r.solicitud_id, r.cancion_id, r.iniciada_at, " + CANCION + " "
                         + "FROM operacion.reproduccion r JOIN operacion.cancion c ON c.id = r.cancion_id "
                         + "WHERE r.sesion_id = ? AND r.terminada_at IS NULL",
                 (fila, n) -> {
                     OffsetDateTime iniciada = fila.getObject("iniciada_at", OffsetDateTime.class);
-                    return new Sonando(fila.getObject("id", UUID.class), fila.getObject("solicitud_id", UUID.class),
+                    return new Sonando(fila.getObject("id", UUID.class), fila.getString("origen"),
+                            fila.getObject("solicitud_id", UUID.class),
                             fila.getObject("cancion_id", UUID.class), cancion(fila),
                             iniciada == null ? null : iniciada.toInstant(), entero(fila, "duracion_operativa_s"));
                 },
