@@ -2,7 +2,7 @@ package cue.edu.co.yousongbackend.cola;
 
 import cue.edu.co.yousongbackend.catalogo.BloqueosVigentes;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
-import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
+import cue.edu.co.yousongbackend.catalogo.RegistroCancionSolicitada;
 import cue.edu.co.yousongbackend.catalogo.OrigenBusqueda;
 import cue.edu.co.yousongbackend.catalogo.VideoIdYoutube;
 import cue.edu.co.yousongbackend.cola.ColaDtos.ApoyoResponse;
@@ -61,7 +61,7 @@ public class SolicitudesService {
     private final VersionCola versionCola;
     private final LimitadorAccionesCola limitador;
     private final CancionRepository canciones;
-    private final MetadatosCancionService metadatos;
+    private final RegistroCancionSolicitada registro;
     private final EventoOutboxPublisher eventos;
     private final BloqueosVigentes bloqueos;
     private final JdbcTemplate jdbc;
@@ -72,7 +72,7 @@ public class SolicitudesService {
 
     SolicitudesService(ColaConsultas consultas, ReglasDeParticipacion reglas, VersionCola versionCola,
                        LimitadorAccionesCola limitador,
-                       CancionRepository canciones, MetadatosCancionService metadatos, EventoOutboxPublisher eventos,
+                       CancionRepository canciones, RegistroCancionSolicitada registro, EventoOutboxPublisher eventos,
                        BloqueosVigentes bloqueos, JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
                        Clock clock,
                        @Value("${app.cola.re-request-minutes:30}") long minutosRepeticion,
@@ -88,7 +88,7 @@ public class SolicitudesService {
         this.versionCola = versionCola;
         this.limitador = limitador;
         this.canciones = canciones;
-        this.metadatos = metadatos;
+        this.registro = registro;
         this.eventos = eventos;
         this.bloqueos = bloqueos;
         this.jdbc = jdbc;
@@ -101,7 +101,8 @@ public class SolicitudesService {
     /**
      * Requests the song for the participant's session, or votes for it when it already has an active request.
      * Not transactional itself: a song the catalog never stored is first looked up at YouTube (one videos.list
-     * unit charged to the participant's establishment, no transaction open) and stored, then one short
+     * unit charged to the participant's establishment, no transaction open; concurrent requests of the same video
+     * share one lookup, see {@link RegistroCancionSolicitada}) and stored, then one short
      * transaction applies the request.
      */
     public ApoyoResponse solicitar(ParticipanteAutenticado participante, String videoId) {
@@ -112,8 +113,7 @@ public class SolicitudesService {
         if (canciones.findByYoutubeVideoIdIn(List.of(videoId)).isEmpty()) {
             // A cheap early answer so a paused session does not spend quota; the transaction checks again.
             reglas.exigirAccionesDeCola(participante.establecimientoId(), estadoActual(participante.sesionId()));
-            metadatos.registrar(metadatos.consultarParaSolicitud(videoId,
-                    OrigenBusqueda.participante(participante.establecimientoId())));
+            registro.asegurar(videoId, OrigenBusqueda.participante(participante.establecimientoId()));
         }
         return transaccion.execute(estado -> solicitarEnCola(participante, videoId));
     }
