@@ -68,6 +68,7 @@ public class ParticipacionService {
 
     private final EstablecimientoService establecimientos;
     private final HorarioService horarios;
+    private final EstadoPublicoService estados;
     private final SesionService sesiones;
     private final AccesoParticipantes accesos;
     private final DispositivoRepository dispositivos;
@@ -80,7 +81,8 @@ public class ParticipacionService {
     private final Duration vigenciaCredencial;
     private final int maximoPorSesion;
 
-    ParticipacionService(EstablecimientoService establecimientos, HorarioService horarios, SesionService sesiones,
+    ParticipacionService(EstablecimientoService establecimientos, HorarioService horarios, EstadoPublicoService estados,
+                         SesionService sesiones,
                          AccesoParticipantes accesos,
                          DispositivoRepository dispositivos, PoliticaPrivacidad politica,
                          GeneradorSeudonimos seudonimos, LimitadorUniones limitador,
@@ -95,6 +97,7 @@ public class ParticipacionService {
         }
         this.establecimientos = establecimientos;
         this.horarios = horarios;
+        this.estados = estados;
         this.sesiones = sesiones;
         this.accesos = accesos;
         this.dispositivos = dispositivos;
@@ -115,25 +118,10 @@ public class ParticipacionService {
     @Transactional(readOnly = true)
     public EstablecimientoPublicoResponse estadoPublico(String qrSlug) {
         Establecimiento establecimiento = establecimientos.obtenerPorSlug(qrSlug);
-        Instant proximaApertura = null;
-        EstadoServicio servicio;
-        if (!establecimiento.isActivo()) {
-            servicio = EstadoServicio.CERRADO;
-        } else if (establecimiento.isEnMantenimiento()) {
-            servicio = EstadoServicio.MANTENIMIENTO;
-        } else if (establecimiento.isPausado()) {
-            servicio = EstadoServicio.PAUSADO;
-        } else {
-            HorarioSemanal horario = horarios.horarioDe(establecimiento);
-            Instant ahora = clock.instant();
-            if (!horario.abiertoEn(ahora)) {
-                servicio = EstadoServicio.CERRADO;
-                proximaApertura = horario.proximaApertura(ahora).orElse(null);
-            } else {
-                servicio = sesiones.buscarEnOperacion(establecimiento.getId())
-                        .map(sesion -> EstadoServicio.de(sesion.getEstado())).orElse(EstadoServicio.CERRADO);
-            }
-        }
+        EstadoPublicoService.EstadoPublico estado = estados.resolver(establecimiento,
+                () -> sesiones.buscarEnOperacion(establecimiento.getId()));
+        EstadoServicio servicio = estado.servicio();
+        Instant proximaApertura = estado.proximaApertura();
         return new EstablecimientoPublicoResponse(establecimiento.getNombre(), establecimiento.getQrSlug(), servicio,
                 servicio == EstadoServicio.ABIERTO, proximaApertura);
     }

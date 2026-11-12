@@ -7,6 +7,7 @@ import cue.edu.co.yousongbackend.cola.ColaDtos.EnReproduccion;
 import cue.edu.co.yousongbackend.cola.ColaDtos.ItemCola;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
+import cue.edu.co.yousongbackend.participante.EstadoPublicoService;
 import cue.edu.co.yousongbackend.participante.EstadoServicio;
 import cue.edu.co.yousongbackend.participante.ParticipanteAutenticado;
 import cue.edu.co.yousongbackend.participante.VerificacionCredencial;
@@ -37,14 +38,16 @@ public class ColaService {
     private final SesionRepository sesionRepository;
     private final ColaConsultas consultas;
     private final Clock clock;
+    private final EstadoPublicoService estados;
 
     ColaService(EstablecimientoService establecimientos, SesionService sesiones, SesionRepository sesionRepository,
-                ColaConsultas consultas, Clock clock) {
+                ColaConsultas consultas, Clock clock, EstadoPublicoService estados) {
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
         this.sesionRepository = sesionRepository;
         this.consultas = consultas;
         this.clock = clock;
+        this.estados = estados;
     }
 
     /**
@@ -66,8 +69,10 @@ public class ColaService {
         Optional<Sesion> sesion = establecimiento.isActivo()
                 ? sesiones.buscarEnOperacion(establecimiento.getId())
                 : Optional.empty();
-        return sesion.map(enOperacion -> instantanea(enOperacion, null))
-                .orElseGet(() -> new ColaResponse(0, EstadoServicio.CERRADO, null, List.of()));
+        // The state is the one the QR status endpoint reports (pause, maintenance, schedule), so both agree.
+        EstadoServicio estado = estados.resolver(establecimiento, () -> sesion).servicio();
+        return sesion.map(enOperacion -> instantanea(enOperacion, null, estado))
+                .orElseGet(() -> new ColaResponse(0, estado, null, List.of()));
     }
 
     /** The same snapshot for a participant, saying on every item whether they already supported that song. */
@@ -77,10 +82,10 @@ public class ColaService {
                 .filter(encontrada -> SesionService.enOperacion(encontrada.getEstado()))
                 .orElseThrow(() -> ApiException.unauthorized(VerificacionCredencial.SESSION_ENDED,
                         "The session this credential belonged to has ended"));
-        return instantanea(sesion, participante.participacionId());
+        return instantanea(sesion, participante.participacionId(), EstadoServicio.de(sesion.getEstado()));
     }
 
-    private ColaResponse instantanea(Sesion sesion, UUID participacionId) {
+    private ColaResponse instantanea(Sesion sesion, UUID participacionId, EstadoServicio estado) {
         List<Fila> filas = consultas.enEspera(sesion.getId());
         Optional<Sonando> sonando = consultas.sonando(sesion.getId());
         Set<UUID> apoyadas = participacionId == null ? null : consultas.cancionesApoyadas(participacionId, sesion.getId());
@@ -96,6 +101,6 @@ public class ColaService {
         }
         EnReproduccion enReproduccion = sonando.map(s -> new EnReproduccion(s.solicitudId(), s.origen(), s.cancion(),
                 s.iniciadaAt(), restante, apoyadas == null ? null : apoyadas.contains(s.cancionId()))).orElse(null);
-        return new ColaResponse(sesion.getColaVersion(), EstadoServicio.de(sesion.getEstado()), enReproduccion, items);
+        return new ColaResponse(sesion.getColaVersion(), estado, enReproduccion, items);
     }
 }
