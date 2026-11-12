@@ -3,6 +3,7 @@ package cue.edu.co.yousongbackend.sesion;
 import cue.edu.co.yousongbackend.acceso.AccesoParticipantes;
 import cue.edu.co.yousongbackend.cola.EstadoSolicitud;
 import cue.edu.co.yousongbackend.cola.SolicitudRepository;
+import cue.edu.co.yousongbackend.cola.VersionCola;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
 import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
@@ -52,14 +53,17 @@ public class SesionService {
     private final EstacionRepository estaciones;
     private final EventoOutboxPublisher eventos;
     private final AccesoParticipantes accesoParticipantes;
+    private final VersionCola versionCola;
     private final EntityManager entityManager;
     private final Clock clock;
 
     SesionService(SesionRepository sesiones, EstablecimientoService establecimientos, ListaDefectoRepository listas,
                   SolicitudRepository solicitudes, ReproduccionRepository reproducciones,
                   EstacionRepository estaciones, EventoOutboxPublisher eventos,
-                  AccesoParticipantes accesoParticipantes, EntityManager entityManager, Clock clock) {
+                  AccesoParticipantes accesoParticipantes, VersionCola versionCola, EntityManager entityManager,
+                  Clock clock) {
         this.accesoParticipantes = accesoParticipantes;
+        this.versionCola = versionCola;
         this.sesiones = sesiones;
         this.establecimientos = establecimientos;
         this.listas = listas;
@@ -117,7 +121,12 @@ public class SesionService {
         // What was still open is finalized, never deleted: the history of the night stays queryable.
         int pendientes = solicitudes.finalizarAbiertas(sesionId, SOLICITUDES_ABIERTAS,
                 EstadoSolicitud.NO_ATENDIDA_CIERRE, ahora);
-        reproducciones.terminarAbiertas(sesionId, ResultadoReproduccion.INTERRUMPIDA_CIERRE, ahora);
+        int interrumpidas = reproducciones.terminarAbiertas(sesionId, ResultadoReproduccion.INTERRUMPIDA_CIERRE, ahora);
+        // Finalizing requests or the playing song changes the queue: one more queue version (the row is locked).
+        boolean colaCambio = pendientes > 0 || interrumpidas > 0;
+        if (colaCambio) {
+            sesion.setColaVersion(sesion.getColaVersion() + 1);
+        }
         estaciones.deshabilitarDeLaSesion(sesionId);
         // Participants lose access with the session, in the same transaction: from the commit on, every
         // participant call answers SESSION_ENDED. The session row lock above waits for joins in progress.
@@ -131,8 +140,13 @@ public class SesionService {
         payload.put("closed_at", ahora);
         payload.put("pendientes_al_cierre", pendientes);
         payload.put("cierre_version", sesion.getVersion());
-        eventos.publicar("session.closed", AmbitoEvento.B, PRODUCTOR, UUID.randomUUID(), sesion.getEstablecimientoId(),
+        UUID correlacion = UUID.randomUUID();
+        eventos.publicar("session.closed", AmbitoEvento.B, PRODUCTOR, correlacion, sesion.getEstablecimientoId(),
                 sesion.getId(), "SESION", sesion.getId(), sesion.getVersion(), payload);
+        if (colaCambio) {
+            versionCola.publicarCambio(sesion.getEstablecimientoId(), sesion.getId(), sesion.getColaVersion(),
+                    "session.closed", correlacion);
+        }
 
         return new CierreSesionResponse(SesionResponse.de(sesion), pendientes);
     }

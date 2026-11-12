@@ -12,7 +12,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 /** Helpers shared by the participant tests: joining through the QR slug, opening and closing sessions. */
-abstract class ParticipanteApiTestSupport extends ApiIntegrationTest {
+public abstract class ParticipanteApiTestSupport extends ApiIntegrationTest {
 
     protected static final String POLICY_VERSION = "1.0";
 
