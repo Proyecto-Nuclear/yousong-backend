@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,6 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
  * session run one after another (no lost vote, no lost version, no vote on a request a concurrent playback just
  * finished). A rejected change rolls back, and its increment with it. Queue changes are short (no provider call
  * inside), and a session close takes the same row lock, so it waits for them too.
+ *
+ * <p>Every increment also publishes {@link ColaCambiada} in the same transaction, so the live subscribers of the
+ * public queue ({@link SuscripcionesCola}) receive the new snapshot once, and only once, the change commits.
  */
 @Component
 public class VersionCola {
@@ -35,10 +39,12 @@ public class VersionCola {
 
     private final JdbcTemplate jdbc;
     private final EventoOutboxPublisher eventos;
+    private final ApplicationEventPublisher aplicacion;
 
-    VersionCola(JdbcTemplate jdbc, EventoOutboxPublisher eventos) {
+    VersionCola(JdbcTemplate jdbc, EventoOutboxPublisher eventos, ApplicationEventPublisher aplicacion) {
         this.jdbc = jdbc;
         this.eventos = eventos;
+        this.aplicacion = aplicacion;
     }
 
     /** Increments the queue version and locks the session row; empty when the session does not exist. */
@@ -50,7 +56,19 @@ public class VersionCola {
                         fila.getObject("establecimiento_id", UUID.class), EstadoSesion.valueOf(fila.getString("estado")),
                         fila.getLong("cola_version")),
                 sesionId);
-        return filas.stream().findFirst();
+        Optional<SesionBloqueada> sesion = filas.stream().findFirst();
+        sesion.ifPresent(bloqueada -> notificarCambio(bloqueada.establecimientoId()));
+        return sesion;
+    }
+
+    /**
+     * Tells the live subscribers of the public queue that it changed, once the current transaction commits.
+     * {@link #avanzar} already does it; call it directly for changes that do not take a queue version but change
+     * the public snapshot (a session opening or closing).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void notificarCambio(UUID establecimientoId) {
+        aplicacion.publishEvent(new ColaCambiada(establecimientoId));
     }
 
     /** Records {@code queue.changed} for the version a change produced, with the queue size after it. */

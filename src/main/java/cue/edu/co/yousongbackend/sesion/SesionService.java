@@ -105,6 +105,7 @@ public class SesionService {
         payload.put("lista_version", lista.getVersion());
         eventos.publicar("session.opened", AmbitoEvento.B, PRODUCTOR, UUID.randomUUID(), establecimientoId,
                 sesion.getId(), "SESION", sesion.getId(), sesion.getVersion(), payload);
+        versionCola.notificarCambio(establecimientoId);
 
         return SesionResponse.de(sesion);
     }
@@ -147,6 +148,8 @@ public class SesionService {
             versionCola.publicarCambio(sesion.getEstablecimientoId(), sesion.getId(), sesion.getColaVersion(),
                     "session.closed", correlacion);
         }
+        // The public queue now shows CERRADO even when nothing was left in it.
+        versionCola.notificarCambio(sesion.getEstablecimientoId());
 
         return new CierreSesionResponse(SesionResponse.de(sesion), pendientes);
     }

@@ -53,7 +53,16 @@ public class ColaService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ColaResponse publica(String qrSlug) {
-        Establecimiento establecimiento = establecimientos.obtenerPorSlug(qrSlug);
+        return publica(establecimientos.obtenerPorSlug(qrSlug));
+    }
+
+    /** The same anonymous snapshot, by establishment id (the live stream keys its subscribers by id, not slug). */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ColaResponse publicaDe(UUID establecimientoId) {
+        return publica(establecimientos.obtener(establecimientoId));
+    }
+
+    private ColaResponse publica(Establecimiento establecimiento) {
         Optional<Sesion> sesion = establecimiento.isActivo()
                 ? sesiones.buscarEnOperacion(establecimiento.getId())
                 : Optional.empty();
