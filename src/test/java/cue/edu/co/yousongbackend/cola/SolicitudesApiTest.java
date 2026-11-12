@@ -105,8 +105,8 @@ class SolicitudesApiTest extends ColaApiTestSupport {
         long version = colaVersion(sesion);
         jdbc.update("UPDATE operacion.sesion SET estado = 'PAUSADA' WHERE id = ?", sesion);
 
-        assertProblema(solicitar(token, videoGuardado()), 409, "SESSION_NOT_ACCEPTING");
-        assertProblema(votar(token, solicitud), 409, "SESSION_NOT_ACCEPTING");
+        assertProblema(solicitar(token, videoGuardado()), 409, "SESSION_PAUSED");
+        assertProblema(votar(token, solicitud), 409, "SESSION_PAUSED");
         assertThat(colaVersion(sesion)).isEqualTo(version);
     }
 

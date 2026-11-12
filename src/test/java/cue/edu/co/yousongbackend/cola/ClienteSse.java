@@ -27,12 +27,12 @@ import tools.jackson.databind.json.JsonMapper;
  * connection), and a daemon thread that parses the {@code text/event-stream} body into events and comments.
  * Every wait has a timeout, so a test never blocks forever.
  */
-final class ClienteSse implements AutoCloseable {
+public final class ClienteSse implements AutoCloseable {
 
     /** One dispatched SSE event. */
-    record Evento(String nombre, String id, String datos) {
+    public record Evento(String nombre, String id, String datos) {
 
-        JsonNode json() {
+        public JsonNode json() {
             return JSON.readTree(datos);
         }
 
@@ -65,7 +65,7 @@ final class ClienteSse implements AutoCloseable {
         }
     }
 
-    static ClienteSse abrir(int port, String path) {
+    public static ClienteSse abrir(int port, String path) {
         return new ClienteSse(port, path, Map.of());
     }
 
@@ -104,7 +104,7 @@ final class ClienteSse implements AutoCloseable {
         }
     }
 
-    Evento siguiente() {
+    public Evento siguiente() {
         return siguiente(Duration.ofSeconds(10));
     }
 
