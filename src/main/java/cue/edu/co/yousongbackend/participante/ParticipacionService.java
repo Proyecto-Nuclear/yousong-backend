@@ -7,6 +7,8 @@ import cue.edu.co.yousongbackend.acceso.DispositivoRepository;
 import cue.edu.co.yousongbackend.acceso.SesionAcceso;
 import cue.edu.co.yousongbackend.establecimiento.Establecimiento;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
+import cue.edu.co.yousongbackend.establecimiento.HorarioSemanal;
+import cue.edu.co.yousongbackend.establecimiento.HorarioService;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.EstablecimientoPublicoResponse;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.EstablecimientoResumen;
 import cue.edu.co.yousongbackend.participante.ParticipacionDtos.MiSesionResponse;
@@ -40,6 +42,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Joining is anonymous, so it is bounded three ways: joins per minute per client address and per
  * establishment ({@link LimitadorUniones}), and participations per session ({@code app.participante.max-per-session}).
  *
+ * <p>Weekly windows ({@link HorarioService}): with at least one, the QR only admits participants inside a window.
+ * Outside every window the public status is CERRADO (with the next opening) and joining answers 409
+ * OUTSIDE_SCHEDULE, even when the owner opened a session manually; participants already inside keep their access
+ * until the session closes. Without windows the session state alone decides, as before.
+ *
  * <p>One device, one participation per session ({@code uq_participacion_sesion_dispositivo}): the first join
  * mints a device and returns its secret ({@link TokenDispositivo}) once; a later join that presents it gets the
  * same participation back (with a fresh credential) instead of a second one, also after leaving. The device is
@@ -57,6 +64,7 @@ public class ParticipacionService {
     private static final int INTENTOS_SEUDONIMO = 10;
 
     private final EstablecimientoService establecimientos;
+    private final HorarioService horarios;
     private final SesionService sesiones;
     private final AccesoParticipantes accesos;
     private final DispositivoRepository dispositivos;
@@ -69,7 +77,8 @@ public class ParticipacionService {
     private final Duration vigenciaCredencial;
     private final int maximoPorSesion;
 
-    ParticipacionService(EstablecimientoService establecimientos, SesionService sesiones, AccesoParticipantes accesos,
+    ParticipacionService(EstablecimientoService establecimientos, HorarioService horarios, SesionService sesiones,
+                         AccesoParticipantes accesos,
                          DispositivoRepository dispositivos, PoliticaPrivacidad politica,
                          GeneradorSeudonimos seudonimos, LimitadorUniones limitador,
                          EntityManager entityManager, JdbcTemplate jdbc, Clock clock,
@@ -82,6 +91,7 @@ public class ParticipacionService {
             throw new IllegalStateException("app.participante.max-per-session must be positive");
         }
         this.establecimientos = establecimientos;
+        this.horarios = horarios;
         this.sesiones = sesiones;
         this.accesos = accesos;
         this.dispositivos = dispositivos;
@@ -95,15 +105,30 @@ public class ParticipacionService {
         this.maximoPorSesion = maximoPorSesion;
     }
 
+    /**
+     * What the QR shows. {@code proximaApertura} is only present when the establishment is closed because it is
+     * outside every weekly window: the start of the next window.
+     */
     @Transactional(readOnly = true)
     public EstablecimientoPublicoResponse estadoPublico(String qrSlug) {
         Establecimiento establecimiento = establecimientos.obtenerPorSlug(qrSlug);
-        EstadoServicio servicio = establecimiento.isActivo()
-                ? sesiones.buscarEnOperacion(establecimiento.getId())
-                        .map(sesion -> EstadoServicio.de(sesion.getEstado())).orElse(EstadoServicio.CERRADO)
-                : EstadoServicio.CERRADO;
+        Instant proximaApertura = null;
+        EstadoServicio servicio;
+        if (!establecimiento.isActivo()) {
+            servicio = EstadoServicio.CERRADO;
+        } else {
+            HorarioSemanal horario = horarios.horarioDe(establecimiento);
+            Instant ahora = clock.instant();
+            if (!horario.abiertoEn(ahora)) {
+                servicio = EstadoServicio.CERRADO;
+                proximaApertura = horario.proximaApertura(ahora).orElse(null);
+            } else {
+                servicio = sesiones.buscarEnOperacion(establecimiento.getId())
+                        .map(sesion -> EstadoServicio.de(sesion.getEstado())).orElse(EstadoServicio.CERRADO);
+            }
+        }
         return new EstablecimientoPublicoResponse(establecimiento.getNombre(), establecimiento.getQrSlug(), servicio,
-                servicio == EstadoServicio.ABIERTO);
+                servicio == EstadoServicio.ABIERTO, proximaApertura);
     }
 
     /**
@@ -138,6 +163,10 @@ public class ParticipacionService {
         limitador.registrar(direccion, establecimiento.getId());
         if (!establecimiento.isActivo()) {
             throw ApiException.conflict("ESTABLISHMENT_INACTIVE", "The establishment is not active");
+        }
+        // Like the limits above, checked before the session lock: a refused join writes nothing and delays no close.
+        if (!horarios.horarioDe(establecimiento).abiertoEn(clock.instant())) {
+            throw ApiException.conflict("OUTSIDE_SCHEDULE", "The establishment is outside its opening hours");
         }
         Sesion sesion = sesiones.bloquearEnOperacionParaUnirse(establecimiento.getId())
                 .filter(enOperacion -> enOperacion.getEstado() != EstadoSesion.CERRANDO)
