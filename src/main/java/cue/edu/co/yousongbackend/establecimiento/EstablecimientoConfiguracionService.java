@@ -1,7 +1,5 @@
 package cue.edu.co.yousongbackend.establecimiento;
 
-import cue.edu.co.yousongbackend.integracion.AmbitoEvento;
-import cue.edu.co.yousongbackend.integracion.EventoOutboxPublisher;
 import cue.edu.co.yousongbackend.sesion.SesionService;
 import cue.edu.co.yousongbackend.shared.persistence.BloqueoTransaccional;
 import cue.edu.co.yousongbackend.shared.web.ApiException;
@@ -12,9 +10,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Service;
@@ -29,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class EstablecimientoConfiguracionService {
 
     private static final String DEFAULT_TIME_ZONE = "America/Bogota";
-    private static final String EVENTO = "configuration.changed";
-    private static final String AGREGADO = "ESTABLECIMIENTO";
     private static final int MAX_SLUG_ATTEMPTS = 20;
     private static final int SLUG_SUFFIX_LENGTH = 6;
     private static final String SLUG_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -42,18 +36,18 @@ public class EstablecimientoConfiguracionService {
     private final EstablecimientoRepository repository;
     private final EstablecimientoService establecimientos;
     private final SesionService sesiones;
-    private final EventoOutboxPublisher eventos;
+    private final CambiosConfiguracion cambios;
     private final EntityManager entityManager;
     private final BloqueoTransaccional bloqueos;
     private final Clock clock;
 
     EstablecimientoConfiguracionService(EstablecimientoRepository repository, EstablecimientoService establecimientos,
-                                        SesionService sesiones, EventoOutboxPublisher eventos,
+                                        SesionService sesiones, CambiosConfiguracion cambios,
                                         EntityManager entityManager, BloqueoTransaccional bloqueos, Clock clock) {
         this.repository = repository;
         this.establecimientos = establecimientos;
         this.sesiones = sesiones;
-        this.eventos = eventos;
+        this.cambios = cambios;
         this.entityManager = entityManager;
         this.bloqueos = bloqueos;
         this.clock = clock;
@@ -145,14 +139,7 @@ public class EstablecimientoConfiguracionService {
     }
 
     private void publicarCambio(Establecimiento establecimiento, List<String> campos) {
-        long version = eventos.siguienteVersion(AGREGADO, establecimiento.getId(), EVENTO);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("entity_type", AGREGADO);
-        payload.put("entity_ref", establecimiento.getId());
-        payload.put("version", version);
-        payload.put("field_codes", campos);
-        eventos.publicar(EVENTO, AmbitoEvento.O, "backend.configuracion", UUID.randomUUID(), establecimiento.getId(),
-                null, AGREGADO, establecimiento.getId(), version, payload);
+        cambios.publicar(establecimiento.getId(), campos);
     }
 
     private String slugExplicito(String slug) {
