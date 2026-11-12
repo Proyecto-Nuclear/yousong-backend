@@ -177,6 +177,41 @@ class IdentificacionDispositivoApiTest extends ParticipanteApiTestSupport {
     }
 
     @Test
+    void aRejoinRecordsF1AgainWhenItsLastRecordBelongsToAnOlderPolicyVersion() {
+        Local local = localListoParaAbrir();
+        UUID sesionId = abrirSesion(local);
+        String dispositivoToken = unirseOk(local.slug(), null).get("dispositivoToken").asString();
+        jdbc.update("UPDATE operacion.consentimiento SET politica_version = '0.9' WHERE participacion_id IN "
+                + "(SELECT id FROM operacion.participacion WHERE sesion_id = ?)", sesionId);
+
+        unirseOk(local.slug(), dispositivoToken);
+        unirseOk(local.slug(), dispositivoToken);
+
+        assertThat(contar("SELECT count(*) FROM operacion.consentimiento c JOIN operacion.participacion p "
+                + "ON p.id = c.participacion_id WHERE p.sesion_id = ? AND c.finalidad = 'F1' "
+                + "AND c.accion = 'AUTORIZA' AND c.politica_version = '" + POLICY_VERSION + "'", sesionId))
+                .as("one new F1 under the current version, not one per rejoin").isEqualTo(1);
+    }
+
+    @Test
+    void aRejoinAuthorizesF1AgainWhenTheLastDecisionWasARevocation() {
+        Local local = localListoParaAbrir();
+        UUID sesionId = abrirSesion(local);
+        String dispositivoToken = unirseOk(local.slug(), null).get("dispositivoToken").asString();
+        jdbc.update("UPDATE operacion.consentimiento SET registrado_at = now() - interval '1 hour' "
+                + "WHERE participacion_id IN (SELECT id FROM operacion.participacion WHERE sesion_id = ?)", sesionId);
+        jdbc.update("INSERT INTO operacion.consentimiento (id, participacion_id, politica_version, finalidad, accion, "
+                + "canal, registrado_at) SELECT gen_random_uuid(), id, ?, 'F1', 'REVOCA', 'WEB', now() - interval '1 minute' "
+                + "FROM operacion.participacion WHERE sesion_id = ?", POLICY_VERSION, sesionId);
+
+        unirseOk(local.slug(), dispositivoToken);
+
+        assertThat(jdbc.queryForObject("SELECT accion FROM operacion.consentimiento c JOIN operacion.participacion p "
+                + "ON p.id = c.participacion_id WHERE p.sesion_id = ? AND c.finalidad = 'F1' "
+                + "ORDER BY c.registrado_at DESC LIMIT 1", String.class, sesionId)).isEqualTo("AUTORIZA");
+    }
+
+    @Test
     void theRequiredConsentAndThePolicyVersionAreStillCheckedOnRejoin() {
         Local local = localListoParaAbrir();
         abrirSesion(local);

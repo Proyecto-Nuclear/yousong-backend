@@ -170,11 +170,14 @@ public class ParticipacionService {
 
         if (ingreso.existente()) {
             accesos.revocarCredencialesDeLaParticipacion(ingreso.id(), ahora);
-        } else {
+        }
+        // F1 was just checked against the current policy version, so it is recorded again whenever the last
+        // record of the participation is not an authorization under that same version.
+        if (!(ingreso.existente() && autorizadaVigente(ingreso.id(), FinalidadConsentimiento.F1))) {
             consentir(ingreso.id(), FinalidadConsentimiento.F1, canal, ahora);
         }
         if (Boolean.TRUE.equals(request.autorizaF2())
-                && !(ingreso.existente() && autorizada(ingreso.id(), FinalidadConsentimiento.F2))) {
+                && !(ingreso.existente() && autorizadaVigente(ingreso.id(), FinalidadConsentimiento.F2))) {
             consentir(ingreso.id(), FinalidadConsentimiento.F2, canal, ahora);
         }
 
@@ -300,12 +303,12 @@ public class ParticipacionService {
                 "Could not register the participation right now. Try again in a moment");
     }
 
-    /** Whether the latest decision of the participation on that purpose is an authorization. */
-    private boolean autorizada(UUID participacionId, FinalidadConsentimiento finalidad) {
-        List<String> acciones = jdbc.queryForList("SELECT accion FROM operacion.consentimiento "
-                        + "WHERE participacion_id = ? AND finalidad = ? ORDER BY registrado_at DESC LIMIT 1",
-                String.class, participacionId, finalidad.name());
-        return !acciones.isEmpty() && AccionConsentimiento.AUTORIZA.name().equals(acciones.getFirst());
+    /** Whether the latest decision on that purpose is an authorization under the current policy version. */
+    private boolean autorizadaVigente(UUID participacionId, FinalidadConsentimiento finalidad) {
+        return !jdbc.queryForList("SELECT 1 FROM (SELECT accion, politica_version FROM operacion.consentimiento "
+                        + "WHERE participacion_id = ? AND finalidad = ? ORDER BY registrado_at DESC LIMIT 1) ultimo "
+                        + "WHERE accion = ? AND politica_version = ?",
+                participacionId, finalidad.name(), AccionConsentimiento.AUTORIZA.name(), politica.version()).isEmpty();
     }
 
     /** Only the purpose, the policy version, the channel and the time: no address, user agent or free text. */
