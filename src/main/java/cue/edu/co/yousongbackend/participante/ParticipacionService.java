@@ -47,6 +47,9 @@ import org.springframework.transaction.annotation.Transactional;
  * OUTSIDE_SCHEDULE, even when the owner opened a session manually; participants already inside keep their access
  * until the session closes. Without windows the session state alone decides, as before.
  *
+ * <p>Owner switches, checked first: maintenance (MANTENIMIENTO, 409 ESTABLISHMENT_IN_MAINTENANCE) and the system
+ * pause (PAUSADO, 409 ESTABLISHMENT_PAUSED) stop every join regardless of windows and session.
+ *
  * <p>One device, one participation per session ({@code uq_participacion_sesion_dispositivo}): the first join
  * mints a device and returns its secret ({@link TokenDispositivo}) once; a later join that presents it gets the
  * same participation back (with a fresh credential) instead of a second one, also after leaving. The device is
@@ -116,6 +119,10 @@ public class ParticipacionService {
         EstadoServicio servicio;
         if (!establecimiento.isActivo()) {
             servicio = EstadoServicio.CERRADO;
+        } else if (establecimiento.isEnMantenimiento()) {
+            servicio = EstadoServicio.MANTENIMIENTO;
+        } else if (establecimiento.isPausado()) {
+            servicio = EstadoServicio.PAUSADO;
         } else {
             HorarioSemanal horario = horarios.horarioDe(establecimiento);
             Instant ahora = clock.instant();
@@ -165,6 +172,12 @@ public class ParticipacionService {
             throw ApiException.conflict("ESTABLISHMENT_INACTIVE", "The establishment is not active");
         }
         // Like the limits above, checked before the session lock: a refused join writes nothing and delays no close.
+        if (establecimiento.isEnMantenimiento()) {
+            throw ApiException.conflict("ESTABLISHMENT_IN_MAINTENANCE", "The establishment is in maintenance");
+        }
+        if (establecimiento.isPausado()) {
+            throw ApiException.conflict("ESTABLISHMENT_PAUSED", "The establishment is paused; try again when it resumes");
+        }
         if (!horarios.horarioDe(establecimiento).abiertoEn(clock.instant())) {
             throw ApiException.conflict("OUTSIDE_SCHEDULE", "The establishment is outside its opening hours");
         }
