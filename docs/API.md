@@ -510,6 +510,8 @@ Who: public. Response `200` `ColaResponse`:
 | `estado` | enum | same value as `servicio` of the status endpoint |
 | `enReproduccion` | object \| null | what plays now, see below |
 | `cola` | array | waiting items in play order (first plays next) |
+| `proximasDefecto` | array | the next default-list songs, after every request of `cola`; see below |
+| `rotacionDefecto` | enum \| null | `SECUENCIAL` \| `ALEATORIA` (policy of the list the session pinned); `null` without a session in operation or when nothing of the list is playable |
 
 `enReproduccion`: `solicitudId` (uuid \| null, null for a default-list song), `origen` (`SOLICITUD` \|
 `DEFECTO`), `cancion` (`CancionCola`), `iniciadaAt` (instant), `restanteSegundos` (long, estimate),
@@ -518,9 +520,19 @@ Who: public. Response `200` `ColaResponse`:
 `cola[]` item: `solicitudId` (uuid), `posicion` (int, 1-based), `votos` (long), `cancion` (`CancionCola`),
 `esperaEstimadaSegundos` (long), `votado` (participant view only).
 
+`proximasDefecto[]` item: `posicion` (int), `cancion` (`CancionCola`), `esperaEstimadaSegundos` (long). No
+`solicitudId`, `votos` or `votado` (a default song is not a request and cannot be supported), in the participant
+view too. At most 5 items (`app.cola.default-preview-size`), in the order the rotation will pick them (wrapping
+around the list), skipping blocked and unavailable songs. `posicion` continues after the requests (2 waiting
+requests: the first default song is position 3), and its wait counts what is left of the song playing, every
+request and the default songs ahead of it. `ALEATORIA` cannot be predicted, so its preview is always `[]`.
+Without a session in operation, or when nothing of the list is playable, it is `[]` too. A session keeps the
+default-list version it opened with: publishing a new version changes the preview from the next session only.
+
 No identity (participation, device, pseudonym) appears anywhere: safe for a public screen.
 
-Captured (a song playing, two waiting):
+Captured (a song playing, two waiting; captured before the preview fields existed, current responses also end
+with `proximasDefecto` and `rotacionDefecto` as in the next capture):
 
 ```json
 {
@@ -540,7 +552,30 @@ Captured (a song playing, two waiting):
 }
 ```
 
-Captured (no session in operation): `{"colaVersion":0,"estado":"CERRADO","enReproduccion":null,"cola":[]}`
+Captured (one request waiting, nothing playing, a `SECUENCIAL` list of three songs: 227, 250 and 252 s):
+
+```json
+{
+  "colaVersion": 1,
+  "estado": "ABIERTO",
+  "enReproduccion": null,
+  "cola": [
+    {"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0}
+  ],
+  "proximasDefecto": [
+    {"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg"},"esperaEstimadaSegundos":200},
+    {"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg"},"esperaEstimadaSegundos":427},
+    {"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg"},"esperaEstimadaSegundos":677}
+  ],
+  "rotacionDefecto": "SECUENCIAL"
+}
+```
+
+Captured (`ALEATORIA` list, empty queue):
+`{"colaVersion":0,"estado":"ABIERTO","enReproduccion":null,"cola":[],"proximasDefecto":[],"rotacionDefecto":"ALEATORIA"}`
+
+Captured (no session in operation):
+`{"colaVersion":0,"estado":"CERRADO","enReproduccion":null,"cola":[],"proximasDefecto":[],"rotacionDefecto":null}`
 
 Errors: `404 ESTABLISHMENT_NOT_FOUND`.
 
@@ -556,14 +591,16 @@ credential problem (including unknown routes under this prefix without a valid c
 
 #### GET `/api/participante/sesion` - my session
 
-Response `200`: `establecimiento.nombre` (string), `servicio` (enum, from the session state only), `seudonimo`
-(string). Poll it (or use the SSE stream + this call) to notice the end of the session. Captured:
+Response `200`: `establecimiento.nombre` (string), `servicio` (enum, the same value as `servicio` of the public
+status endpoint: inactive, maintenance, system pause and the weekly schedule apply first, then the session
+state), `seudonimo` (string). Poll it (or use the SSE stream + this call) to notice the end of the session. Captured:
 
 ```json
 {"establecimiento":{"nombre":"Bar La Esquina"},"servicio":"ABIERTO","seudonimo":"p-b8eca1"}
 ```
 
-During a session pause: `"servicio":"PAUSADO"` (captured).
+During a session pause: `"servicio":"PAUSADO"` (captured). Also `PAUSADO` during a system pause, and `CERRADO`
+outside every weekly window while the session is still open.
 
 #### DELETE `/api/participante/sesion` - leave
 
@@ -618,11 +655,20 @@ source fails (never an error).
 #### GET `/api/participante/cola` - the queue, with my votes
 
 Same `ColaResponse` as the public queue, plus `votado` (boolean) on `enReproduccion` and on every `cola[]` item:
-true when this participation already supported **that song** in this session. `estado` comes from the session
-state only (see quirks). Captured:
+true when this participation already supported **that song** in this session. `estado` is the same value the
+public queue and the public status report (system pause, maintenance and the weekly schedule included).
+`proximasDefecto` and `rotacionDefecto` are the same as in the public queue (no `votado` on preview items).
+Captured:
 
 ```json
 {"colaVersion":4,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":3,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0,"votado":true},{"solicitudId":"<solicitudId-B>","posicion":2,"votos":1,"cancion":{"videoId":"vidSongB001","titulo":"Titulo vidSongB001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongB001/mqdefault.jpg"},"esperaEstimadaSegundos":200,"votado":false}]}
+```
+
+That capture predates the preview fields. Captured with a default-list preview (the request was made by this
+participant; the preview items carry no `votado`):
+
+```json
+{"colaVersion":1,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0,"votado":true}],"proximasDefecto":[{"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg"},"esperaEstimadaSegundos":200},{"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg"},"esperaEstimadaSegundos":427},{"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg"},"esperaEstimadaSegundos":677}],"rotacionDefecto":"SECUENCIAL"}
 ```
 
 #### POST `/api/participante/solicitudes` - request a song (or vote for it)
@@ -1110,7 +1156,8 @@ Events: `request.removed`, `queue.changed`; SSE push.
 `200`, `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no`, chunked.
 
 Captured stream (the client sent `Last-Event-ID: 999`; a request was then created; heartbeat shortened for the
-capture):
+capture; captured before the preview fields existed, so current `data:` lines also end with
+`"proximasDefecto":[...],"rotacionDefecto":...` exactly as `GET .../cola`):
 
 ```
 event:cola
@@ -1131,7 +1178,7 @@ data:{"colaVersion":5,"estado":"ABIERTO","enReproduccion":null,"cola":[...,{"sol
 |---------|-------|
 | Event name | always `cola` |
 | `id:` | the snapshot's `colaVersion` |
-| `data:` | one line: the **full public snapshot**, byte-identical in shape to `GET .../cola` (no `votado`) |
+| `data:` | one line: the **full public snapshot**, byte-identical in shape to `GET .../cola` (no `votado`), including `proximasDefecto` and `rotacionDefecto` |
 | Keep-alive | comment line `: keep-alive` every 15 s (`app.cola.sse-heartbeat-millis`) |
 | First event | sent immediately on connect: the current snapshot |
 | `Last-Event-ID` | ignored on purpose (the first event is always a full snapshot) |
@@ -1153,7 +1200,8 @@ requests, session open/close/pause/resume, system pause/resume, maintenance star
 
 **Not pushed:** changes caused only by time (a weekly window starting or ending; the scheduled close does push,
 because it closes the session), replacing the weekly schedule, `PATCH` of the establishment (including
-`activo`), the estimated waits ticking down, a participant joining or leaving.
+`activo`), the estimated waits ticking down, a participant joining or leaving, a timed block expiring (the
+blocked song comes back in `proximasDefecto` only on the next snapshot; lifting a block early does push).
 
 ### 4.3 Client semantics
 
@@ -1243,8 +1291,11 @@ restante(playing) = max(0, duracionOperativa(playing) - seconds since iniciadaAt
 duracionOperativa = the song's operating duration, 240 s when missing or not positive
 ```
 
-It is an estimate: votes reorder the queue at any time. On this commit the operating duration of real songs is
-always the 240 s default (see quirks), so do not show it as exact.
+The operating duration starts as the provider duration (`duracionSegundos`) when the catalog stores or refreshes
+the song and YouTube gives one, otherwise 240 s; a refresh only replaces the untouched 240 s value, never one
+that was set to something else. Songs stored before this rule keep 240 s until their metadata is next refreshed.
+`proximasDefecto[]` waits follow the same formula, continuing after the last request. It is an estimate: votes
+reorder the queue at any time, so do not show it as exact.
 
 ### 5.4 What plays now (`enReproduccion`)
 
@@ -1259,6 +1310,9 @@ default-list **version pinned by the session** (blocked and unavailable songs sk
 - `SECUENCIAL`: the first playable item after the last default item played in this session, wrapping to the
   first; the first item when none played yet.
 - `ALEATORIA`: a random playable item other than the last played song (repeats only when it is the only one).
+
+The queue snapshots preview this choice in `proximasDefecto` (same rule, so it never disagrees with the player);
+an `ALEATORIA` list has an empty preview.
 
 A request that arrives while a default song plays never interrupts it; it plays at the next `siguiente`. When
 neither a request nor a playable list item exists: `409 QUEUE_EMPTY`.
@@ -1536,56 +1590,49 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
    in mind (it never needs encoding).
 4. **`PATCH /api/mi-establecimiento` ignores unknown fields** (including `qrSlug`) and returns `200` even when
    nothing changed; it only fails with `EMPTY_UPDATE` when all three known fields are absent or null.
-5. **Participant views ignore owner switches and the schedule:** `GET /api/participante/cola` (`estado`) and
-   `GET /api/participante/sesion` (`servicio`) derive the state from the session only. Under a system pause the
-   public queue says `PAUSADO` while the participant queue says `ABIERTO` (captured), and requests/votes still
-   fail with `ESTABLISHMENT_PAUSED`. Use the public status endpoint (or the SSE `estado`) for the banner.
-6. **Outside the schedule, patrons already inside keep requesting and voting** while the session is `ABIERTA`
+5. **Outside the schedule, patrons already inside keep requesting and voting** while the session is `ABIERTA`
    (only joining is blocked), until the scheduled close runs (if the session was opened inside a window).
-7. **`proximaApertura` only appears when the schedule is the reason for `CERRADO`.** With no session but inside
+6. **`proximaApertura` only appears when the schedule is the reason for `CERRADO`.** With no session but inside
    a window it is absent; with inactive/paused/maintenance it is absent even when outside the windows. It is the
    next window *start* strictly after now, searched up to 7 days ahead.
-8. **Schedule changes while a session is open:** applied on the next scheduled-close tick (30 s). The rule
+7. **Schedule changes while a session is open:** applied on the next scheduled-close tick (30 s). The rule
    evaluates "was the session opened inside a window" against the **new** schedule, so adding windows that
    cover the opening time but not "now" closes the session at the next tick; removing every window means the
    session is never closed automatically.
-9. **Schedule replacement and `PATCH` (including `activo:false`) do not push an SSE snapshot**; neither do
+8. **Schedule replacement and `PATCH` (including `activo:false`) do not push an SSE snapshot**; neither do
    window boundaries. Screens must poll the status endpoint.
-10. **SSE `id`/`colaVersion` is not monotonic across sessions** (closed = 0, a new session restarts at 0) and is
+9. **SSE `id`/`colaVersion` is not monotonic across sessions** (closed = 0, a new session restarts at 0) and is
     unchanged by state-only pushes (pause, maintenance). `Last-Event-ID` is ignored.
-11. **`Idempotency-Key` is allowed by CORS but never read** by any endpoint.
-12. **CORS preflight rejects any extra header** (`x-request-id`, tracing headers) with `403 Invalid CORS
+10. **`Idempotency-Key` is allowed by CORS but never read** by any endpoint.
+11. **CORS preflight rejects any extra header** (`x-request-id`, tracing headers) with `403 Invalid CORS
     request`.
-13. **Estimated waits always use 240 s per song for real catalog songs:** metadata refreshes store the provider
-    duration (`duracionSegundos`) but never the operating duration used by the wait formula (the column keeps
-    its 240 s default).
-14. **`SEARCH_BUDGET_EXHAUSTED` can answer a song request** (`POST /api/participante/solicitudes` of a song never
+12. **`SEARCH_BUDGET_EXHAUSTED` can answer a song request** (`POST /api/participante/solicitudes` of a song never
     stored needs a 1-unit lookup charged to the establishment budget), with a message that talks about
     "searches" (captured).
-15. **`CATALOG_QUOTA_EXCEEDED` is `503`, not `429`,** while the per-establishment budget is `429`.
-16. **The invalid `dispositivoToken` is silently replaced** with a new device (by design: no probing), so a
+13. **`CATALOG_QUOTA_EXCEEDED` is `503`, not `429`,** while the per-establishment budget is `429`.
+14. **The invalid `dispositivoToken` is silently replaced** with a new device (by design: no probing), so a
     client that keeps sending a wrong stored value gets a new pseudonym on every join unless it stores the
     returned one.
-17. **`NO_ACTIVE_SESSION` is `409` on join but `404` on owner routes;** `NO_DEFAULT_LIST` is `404` on GET and
+15. **`NO_ACTIVE_SESSION` is `409` on join but `404` on owner routes;** `NO_DEFAULT_LIST` is `404` on GET and
     `409` when opening a session.
-18. **Playback works while paused:** `siguiente`/`fin`/`saltar`/`DELETE /cola` only require a session in
+16. **Playback works while paused:** `siguiente`/`fin`/`saltar`/`DELETE /cola` only require a session in
     operation (not `CERRADA`); they ignore the session pause and the system pause (captured for the session
     pause).
-19. **`RESERVADA` and `CERRANDO` are part of the contract but never set on this commit.** `SESSION_ALREADY_CLOSED`,
+17. **`RESERVADA` and `CERRANDO` are part of the contract but never set on this commit.** `SESSION_ALREADY_CLOSED`,
     `SESSION_NOT_FOUND`, `SESSION_NOT_IN_OPERATION` and `ESTABLISHMENT_NOT_FOUND` on owner routes are
     practically unreachable through the API (races only).
-20. **A vote may target the request that is currently playing** (`REPRODUCIENDO` counts as active); it only
+18. **A vote may target the request that is currently playing** (`REPRODUCIENDO` counts as active); it only
     raises `votos`.
-21. **Owner search has no per-user rate limit** and may consume the whole daily YouTube quota, starving
+19. **Owner search has no per-user rate limit** and may consume the whole daily YouTube quota, starving
     participants (they then get `503 CATALOG_QUOTA_EXCEEDED`).
-22. **All limits and the quota counters are in memory per instance** and reset on restart; behind a reverse proxy
+20. **All limits and the quota counters are in memory per instance** and reset on restart; behind a reverse proxy
     without `server.forward-headers-strategy`, every client shares the proxy address, so the per-address join
     and SSE limits become global.
-23. **`PUT /lista-defecto` with an unconfigured/unavailable catalog accepts any well-formed id** (metadata is
+21. **`PUT /lista-defecto` with an unconfigured/unavailable catalog accepts any well-formed id** (metadata is
     best effort) and stores songs with `null` title/duration/thumbnail; with a working catalog an unknown id is
     `400 VIDEO_UNAVAILABLE`.
-24. **QR endpoint works for an inactive establishment** and does not depend on any session.
-25. **`expiraAt` of a participant token is an upper bound only:** the token dies earlier when the session closes,
+22. **QR endpoint works for an inactive establishment** and does not depend on any session.
+23. **`expiraAt` of a participant token is an upper bound only:** the token dies earlier when the session closes,
     when the device rejoins or when the participant leaves.
 
 ---
