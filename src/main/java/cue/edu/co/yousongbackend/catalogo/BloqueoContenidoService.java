@@ -82,9 +82,11 @@ public class BloqueoContenidoService {
     }
 
     /**
-     * Blocks a song. Not transactional itself: a song the catalog never stored is first looked up at YouTube for
-     * staff (one videos.list unit, no transaction open) and stored; 404 {@code SONG_NOT_FOUND} when YouTube does
-     * not know it. Then one short transaction creates the block and applies its effects.
+     * Blocks a song. Not transactional itself: a song the catalog never stored is first looked up at YouTube (one
+     * videos.list unit charged to the owner's daily budget and share, no transaction open) and stored; 404
+     * {@code SONG_NOT_FOUND} when YouTube does not know it, 429 {@code SEARCH_BUDGET_EXHAUSTED} / 503
+     * {@code CATALOG_QUOTA_EXCEEDED} when the owner budget or share is used. Then one short transaction creates the
+     * block and applies its effects.
      */
     public BloqueoResponse bloquear(UUID establecimientoId, CrearBloqueoRequest request) {
         if (request == null || !VideoIdYoutube.valido(request.videoId())) {
@@ -93,7 +95,7 @@ public class BloqueoContenidoService {
         Duration duracion = duracion(request);
         MotivoBloqueo motivo = motivo(request.motivoCodigo());
         if (canciones.findByYoutubeVideoIdIn(List.of(request.videoId())).isEmpty()) {
-            registro.asegurar(request.videoId(), OrigenBusqueda.STAFF);
+            registro.asegurar(request.videoId(), OrigenBusqueda.propietario(establecimientoId));
         }
         return transaccion.execute(estado -> crear(establecimientoId, request.videoId(), duracion, motivo));
     }

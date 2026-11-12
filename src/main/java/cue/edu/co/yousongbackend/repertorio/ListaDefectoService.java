@@ -4,6 +4,7 @@ import cue.edu.co.yousongbackend.catalogo.Cancion;
 import cue.edu.co.yousongbackend.catalogo.ArtistaDesdeCanal;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
 import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
+import cue.edu.co.yousongbackend.catalogo.OrigenBusqueda;
 import cue.edu.co.yousongbackend.catalogo.VideoIdYoutube;
 import cue.edu.co.yousongbackend.catalogo.VideoYoutube;
 import cue.edu.co.yousongbackend.establecimiento.EstablecimientoService;
@@ -71,7 +72,8 @@ public class ListaDefectoService {
      */
     public ListaDefectoResponse publicar(UUID establecimientoId, PublicarListaDefectoRequest request) {
         List<String> videoIds = validarCanciones(request.canciones());
-        Map<String, VideoYoutube> conMetadatos = metadatos.consultar(videoIds);
+        // Charged to the owner: creating an establishment is self-service, so these lookups need a budget too.
+        Map<String, VideoYoutube> conMetadatos = metadatos.consultar(videoIds, OrigenBusqueda.propietario(establecimientoId));
         return transaccion.execute(estado -> publicarVersion(establecimientoId, request, videoIds, conMetadatos));
     }
 

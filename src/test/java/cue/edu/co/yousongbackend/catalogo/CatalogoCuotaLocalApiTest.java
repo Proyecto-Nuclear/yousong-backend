@@ -12,9 +12,10 @@ import org.springframework.test.context.TestPropertySource;
 
 /**
  * Our own daily counter (100 units per search, 1 per details call). The counter lives in the application
- * context, so this class has a context of its own (a limit no other class uses) and a single test.
+ * context, so this class has a context of its own (a limit no other class uses) and a single test. The owner
+ * share is the whole quota here, so the global limit is what stops the owner.
  */
-@TestPropertySource(properties = "app.youtube.daily-quota-limit=250")
+@TestPropertySource(properties = {"app.youtube.daily-quota-limit=303", "app.youtube.owner-quota-share=1.0"})
 class CatalogoCuotaLocalApiTest extends YoutubeApiTest {
 
     private HttpResponse<String> buscar(String consulta) {
@@ -27,7 +28,7 @@ class CatalogoCuotaLocalApiTest extends YoutubeApiTest {
         YOUTUBE.register(LocalYoutubeServer.video(id));
         YOUTUBE.script("/search", 200, LocalYoutubeServer.searchJson(null, id));
 
-        // 101 units each: 0 -> 101 -> 202 -> 303; the limit (250) is checked before each call.
+        // 101 units each, reserved before the call: 0 -> 101 -> 202 -> 303; a fourth would pass the limit (303).
         assertThat(buscar(consultaNueva()).statusCode()).isEqualTo(200);
         assertThat(buscar(consultaNueva()).statusCode()).isEqualTo(200);
         assertThat(buscar(consultaNueva()).statusCode()).isEqualTo(200);

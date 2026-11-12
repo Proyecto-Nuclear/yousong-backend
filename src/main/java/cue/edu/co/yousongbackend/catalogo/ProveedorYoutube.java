@@ -37,15 +37,10 @@ public class ProveedorYoutube {
                 .build();
     }
 
-    /** A staff search: {@link #buscar(String, String, OrigenBusqueda)} with {@link OrigenBusqueda#STAFF}. */
-    public PaginaVideos buscar(String consulta, String pagina) {
-        return buscar(consulta, pagina, OrigenBusqueda.STAFF);
-    }
-
     /**
      * search.list followed by videos.list: every match with its details, unavailable ones included. A
-     * participant search reserves its worst-case cost first (100 units on a search-id miss, plus one details
-     * batch), so a search refused by the participant share or the establishment budget never calls the
+     * participant or owner search reserves its worst-case cost first (100 units on a search-id miss, plus one
+     * details batch), so a search refused by the caller's share or the establishment budget never calls the
      * provider. A search-id cache hit only costs the details call.
      */
     public PaginaVideos buscar(String consulta, String pagina, OrigenBusqueda origen) {
@@ -58,7 +53,7 @@ public class ProveedorYoutube {
         if (reservada) {
             lotes = YoutubeClient.lotes(cacheada == null ? propiedades.maxResults() : cacheada.videoIds().size());
             int busqueda = cacheada == null ? CuotaYoutube.COSTO_BUSQUEDA : 0;
-            dia = cuota.reservar(origen.establecimientoId(), busqueda + CuotaYoutube.COSTO_DETALLES * lotes);
+            dia = cuota.reservar(origen, busqueda + CuotaYoutube.COSTO_DETALLES * lotes);
         }
         PaginaIds ids = cacheada;
         if (ids == null) {
@@ -67,7 +62,7 @@ public class ProveedorYoutube {
             } catch (YoutubeException e) {
                 // Nothing came back: the whole reservation is returned, so a degraded provider cannot burn the budget.
                 if (reservada) {
-                    cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_BUSQUEDA + CuotaYoutube.COSTO_DETALLES * lotes);
+                    cuota.devolver(origen, dia, CuotaYoutube.COSTO_BUSQUEDA + CuotaYoutube.COSTO_DETALLES * lotes);
                 }
                 throw e;
             }
@@ -75,7 +70,7 @@ public class ProveedorYoutube {
         }
         if (ids.videoIds().isEmpty()) {
             if (reservada) {
-                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * lotes);
+                cuota.devolver(origen, dia, CuotaYoutube.COSTO_DETALLES * lotes);
             }
             return new PaginaVideos(List.of(), ids.siguientePagina());
         }
@@ -85,13 +80,13 @@ public class ProveedorYoutube {
             int reservadosDetalles = lotes;
             int necesarios = YoutubeClient.lotes(videoIds.size());
             if (necesarios < reservadosDetalles) {
-                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * (reservadosDetalles - necesarios));
+                cuota.devolver(origen, dia, CuotaYoutube.COSTO_DETALLES * (reservadosDetalles - necesarios));
             }
             try {
                 videos = ejecutar(0, () -> cliente.obtener(videoIds));
             } catch (YoutubeException e) {
                 // The search itself was really spent (it is cached); only the details call is returned.
-                cuota.devolver(origen.establecimientoId(), dia, CuotaYoutube.COSTO_DETALLES * necesarios);
+                cuota.devolver(origen, dia, CuotaYoutube.COSTO_DETALLES * necesarios);
                 throw e;
             }
         } else {
@@ -100,16 +95,19 @@ public class ProveedorYoutube {
         return new PaginaVideos(videos, ids.siguientePagina());
     }
 
-    /** videos.list for the given ids (batches of 50). Ids the provider does not know are absent. */
+    /**
+     * videos.list for the given ids (batches of 50), for internal (system) callers: bounded by the daily limit
+     * only. Ids the provider does not know are absent. Never call it for a request: use the origin overload.
+     */
     public List<VideoYoutube> obtener(Collection<String> videoIds) {
         permitir();
         return detalles(videoIds);
     }
 
     /**
-     * videos.list charged to {@code origen}: a participant call reserves its units (one per batch of 50) from the
-     * participant share and the establishment budget first, and gets them back when the provider fails, exactly
-     * like the details step of a participant search.
+     * videos.list charged to {@code origen}: a participant or owner call reserves its units (one per batch of 50)
+     * from its share and the establishment budget first, and gets them back when the provider fails, exactly
+     * like the details step of a search.
      */
     public List<VideoYoutube> obtener(Collection<String> videoIds, OrigenBusqueda origen) {
         if (origen.esStaff()) {
@@ -117,11 +115,11 @@ public class ProveedorYoutube {
         }
         permitir();
         int unidades = CuotaYoutube.COSTO_DETALLES * YoutubeClient.lotes(videoIds.size());
-        LocalDate dia = cuota.reservar(origen.establecimientoId(), unidades);
+        LocalDate dia = cuota.reservar(origen, unidades);
         try {
             return ejecutar(0, () -> cliente.obtener(videoIds));
         } catch (YoutubeException e) {
-            cuota.devolver(origen.establecimientoId(), dia, unidades);
+            cuota.devolver(origen, dia, unidades);
             throw e;
         }
     }

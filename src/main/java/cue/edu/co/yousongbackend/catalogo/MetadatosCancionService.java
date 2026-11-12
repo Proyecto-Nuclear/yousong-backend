@@ -43,22 +43,32 @@ public class MetadatosCancionService {
     }
 
     /**
-     * Fetches from YouTube the videos whose stored metadata is missing or expired. Best effort: when the
-     * catalog is not configured, unavailable or out of quota it answers an empty map (and logs a warning).
+     * Fetches from YouTube the videos whose stored metadata is missing or expired, charged to {@code origen}
+     * (videos.list units from the owner's daily budget and share). Best effort: when the catalog is not
+     * configured, unavailable or out of quota it answers an empty map (and logs a warning). The one exception is
+     * the establishment's own daily budget: when it is used and a video is not stored at all, the call is refused,
+     * so an owner cannot get unknown videos into the catalog once their lookups for the day are gone; stored
+     * songs whose metadata merely expired keep their old metadata.
      *
      * @return the details of the videos that were fetched, by video id
      * @throws ApiException 400 {@code VIDEO_UNAVAILABLE} when YouTube answers definitively that a video does
-     *                      not exist or cannot be played
+     *                      not exist or cannot be played; 429 {@code SEARCH_BUDGET_EXHAUSTED} as described above
      */
-    public Map<String, VideoYoutube> consultar(Collection<String> videoIds) {
-        List<String> vencidos = vencidos(videoIds);
+    public Map<String, VideoYoutube> consultar(Collection<String> videoIds, OrigenBusqueda origen) {
+        Map<String, Cancion> guardadas = guardadas(videoIds);
+        List<String> vencidos = vencidos(videoIds, guardadas);
         if (vencidos.isEmpty()) {
             return Map.of();
         }
         List<VideoYoutube> respuesta;
         try {
-            respuesta = proveedor.obtener(vencidos);
+            respuesta = proveedor.obtener(vencidos, origen);
         } catch (YoutubeException e) {
+            boolean presupuesto = e.tipo() == YoutubeException.Tipo.OWNER_BUDGET_EXHAUSTED
+                    || e.tipo() == YoutubeException.Tipo.BUDGET_EXHAUSTED;
+            if (presupuesto && vencidos.stream().anyMatch(id -> !guardadas.containsKey(id))) {
+                throw e.aApi();
+            }
             log.warn("Song metadata not refreshed ({}): the default list is published without it", e.tipo());
             return Map.of();
         }
@@ -118,10 +128,13 @@ public class MetadatosCancionService {
         });
     }
 
-    private List<String> vencidos(Collection<String> videoIds) {
-        Instant ahora = reloj.instant();
-        Map<String, Cancion> guardadas = canciones.findByYoutubeVideoIdIn(videoIds).stream()
+    private Map<String, Cancion> guardadas(Collection<String> videoIds) {
+        return canciones.findByYoutubeVideoIdIn(videoIds).stream()
                 .collect(Collectors.toMap(Cancion::getYoutubeVideoId, c -> c));
+    }
+
+    private List<String> vencidos(Collection<String> videoIds, Map<String, Cancion> guardadas) {
+        Instant ahora = reloj.instant();
         return videoIds.stream().filter(id -> {
             Cancion c = guardadas.get(id);
             return c == null || c.getMetadatosExpiranAt() == null || !c.getMetadatosExpiranAt().isAfter(ahora);

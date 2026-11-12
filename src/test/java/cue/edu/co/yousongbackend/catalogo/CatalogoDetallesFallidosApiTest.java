@@ -46,6 +46,8 @@ class CatalogoDetallesFallidosApiTest extends YoutubeApiTest {
         assertThat(json(retry).get("resultados").get(0).get("videoId").asString()).isEqualTo(id);
         assertThat(YOUTUBE.count("/search")).as("search.list ran once in total").isEqualTo(1);
         assertThat(YOUTUBE.count("/videos")).isEqualTo(2);
-        assertThat(cuota.usadas() - antes).as("100 for the search once plus 1 per videos call").isEqualTo(102);
+        assertThat(cuota.usadas() - antes)
+                .as("100 for the search once plus 1 for the videos call that answered; the failed one is refunded")
+                .isEqualTo(101);
     }
 }

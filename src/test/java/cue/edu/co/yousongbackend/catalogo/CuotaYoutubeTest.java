@@ -40,8 +40,16 @@ class CuotaYoutubeTest {
     private final RelojMovible reloj = new RelojMovible();
 
     private CuotaYoutube cuota(int limite, double share, int presupuesto) {
+        return cuota(limite, share, presupuesto, 0.25, 1000);
+    }
+
+    private CuotaYoutube cuota(int limite, double share, int presupuesto, double ownerShare, int ownerBudget) {
         YoutubeProperties propiedades = new YoutubeProperties("k", "http://localhost", 1, "CO", "es", 5, limite, 7, 60);
-        return new CuotaYoutube(propiedades, reloj, share, presupuesto);
+        return new CuotaYoutube(propiedades, reloj, share, presupuesto, ownerShare, ownerBudget);
+    }
+
+    private static OrigenBusqueda propietario(UUID establecimientoId) {
+        return OrigenBusqueda.propietario(establecimientoId);
     }
 
     private static YoutubeException.Tipo rechazo(Runnable accion) {
@@ -137,5 +145,62 @@ class CuotaYoutubeTest {
         assertThat(cuota.usadas()).as("the refund belongs to the previous day").isEqualTo(BUSQUEDA);
         cuota.devolver(LOCAL_A, cuota.reservar(LOCAL_B, 1), 5_000);
         assertThat(cuota.usadas()).isZero();
+    }
+
+    @Test
+    void ownersHaveADailyBudgetPerEstablishmentSeparateFromTheirPatrons() {
+        CuotaYoutube cuota = cuota(1_000_000, 0.7, 2 * BUSQUEDA, 0.25, 2 * BUSQUEDA);
+        cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+        cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+
+        assertThatThrownBy(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA))
+                .isInstanceOfSatisfying(YoutubeException.class, e -> {
+                    assertThat(e.aApi().status().value()).isEqualTo(429);
+                    assertThat(e.aApi().code()).isEqualTo("SEARCH_BUDGET_EXHAUSTED");
+                });
+        assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).as("the patrons of that place").isNull();
+        assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).isNull();
+        assertThat(rechazo(() -> cuota.reservar(LOCAL_A, BUSQUEDA))).as("their own budget is separate")
+                .isEqualTo(YoutubeException.Tipo.BUDGET_EXHAUSTED);
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_B), BUSQUEDA))).as("another owner").isNull();
+        assertThat(cuota.usadas()).as("owner spend counts toward the total").isEqualTo(5 * BUSQUEDA);
+    }
+
+    @Test
+    void ownersTogetherMaySpendOnlyTheOwnerShareAndParticipantsKeepTheirs() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000, 0.25, 100_000);
+        cuota.reservar(propietario(UUID.randomUUID()), BUSQUEDA);
+        cuota.reservar(propietario(UUID.randomUUID()), BUSQUEDA);
+
+        assertThat(rechazo(() -> cuota.reservar(propietario(UUID.randomUUID()), BUSQUEDA)))
+                .as("202 + 101 would pass the owner share of 250")
+                .isEqualTo(YoutubeException.Tipo.QUOTA_EXCEEDED);
+        for (int i = 0; i < 4; i++) {
+            assertThat(rechazo(() -> cuota.reservar(UUID.randomUUID(), BUSQUEDA))).as("participant " + i).isNull();
+        }
+        assertThat(cuota.disponible()).as("a reserve stays for the system").isTrue();
+    }
+
+    @Test
+    void anOwnerRefundGivesBackTheUnitsToTheOwnerCounters() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000, 0.25, BUSQUEDA);
+        var dia = cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_A), 1))).isNotNull();
+
+        cuota.devolver(propietario(LOCAL_A), dia, BUSQUEDA);
+
+        assertThat(cuota.usadas()).isZero();
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA))).isNull();
+    }
+
+    @Test
+    void ownerCountersResetAtPacificMidnight() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000, 0.25, BUSQUEDA);
+        cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA))).isNotNull();
+
+        reloj.ahora = Instant.parse("2026-11-12T08:00:01Z");
+
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA))).isNull();
     }
 }
