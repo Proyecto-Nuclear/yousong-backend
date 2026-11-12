@@ -37,6 +37,14 @@ public class Establecimiento {
     @Column(name = "activo", nullable = false)
     private boolean activo = true;
 
+    /** System pause set by the owner: no joins, no new sessions, no requests or votes. Independent of {@code activo}. */
+    @Column(name = "pausado", nullable = false)
+    private boolean pausado = false;
+
+    /** Maintenance between operating days: no session in operation, no joins, no new sessions. */
+    @Column(name = "en_mantenimiento", nullable = false)
+    private boolean enMantenimiento = false;
+
     @Column(name = "creado_at", nullable = false)
     private Instant creadoAt = Instant.now();
 
