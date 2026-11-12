@@ -1,5 +1,7 @@
 package cue.edu.co.yousongbackend.catalogo;
 
+import cue.edu.co.yousongbackend.control.AuditoriaService;
+import cue.edu.co.yousongbackend.control.ResultadoAuditoria;
 import cue.edu.co.yousongbackend.catalogo.BloqueoDtos.BloqueoResponse;
 import cue.edu.co.yousongbackend.catalogo.BloqueoDtos.CancionBloqueada;
 import cue.edu.co.yousongbackend.catalogo.BloqueoDtos.CrearBloqueoRequest;
@@ -60,13 +62,13 @@ public class BloqueoContenidoService {
     private final BloqueosVigentes vigentes;
     private final VersionCola versionCola;
     private final EventoOutboxPublisher eventos;
-    private final AuditoriaModeracion auditoria;
+    private final AuditoriaService auditoria;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaccion;
     private final Clock clock;
 
     BloqueoContenidoService(CancionRepository canciones, MetadatosCancionService metadatos, BloqueosVigentes vigentes,
-                            VersionCola versionCola, EventoOutboxPublisher eventos, AuditoriaModeracion auditoria,
+                            VersionCola versionCola, EventoOutboxPublisher eventos, AuditoriaService auditoria,
                             JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock) {
         this.canciones = canciones;
         this.metadatos = metadatos;
@@ -133,7 +135,7 @@ public class BloqueoContenidoService {
         }
 
         publicar(establecimientoId, sesionId.orElse(null), id, cancionId, "BLOCKED", hasta, motivo.name(), 0, correlacion);
-        auditoria.exito(establecimientoId, "CONTENT_BLOCKED", AGREGADO, id, correlacion);
+        auditoria.registrar(establecimientoId, "CONTENT_BLOCKED", AGREGADO, id, ResultadoAuditoria.EXITO, correlacion);
         return buscar(establecimientoId, id, ahora).orElseThrow().conEfectos(retiradas, reproduciendo);
     }
 
@@ -174,7 +176,7 @@ public class BloqueoContenidoService {
         UUID correlacion = UUID.randomUUID();
         publicar(establecimientoId, sesionId, bloqueoId, cancion.get(0), "LIFTED", actual.hastaAt(),
                 actual.motivoCodigo(), 1, correlacion);
-        auditoria.exito(establecimientoId, "CONTENT_UNBLOCKED", AGREGADO, bloqueoId, correlacion);
+        auditoria.registrar(establecimientoId, "CONTENT_UNBLOCKED", AGREGADO, bloqueoId, ResultadoAuditoria.EXITO, correlacion);
         return buscar(establecimientoId, bloqueoId, ahora).orElseThrow();
     }
 

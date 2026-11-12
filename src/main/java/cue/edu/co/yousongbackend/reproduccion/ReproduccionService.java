@@ -1,6 +1,7 @@
 package cue.edu.co.yousongbackend.reproduccion;
 
-import cue.edu.co.yousongbackend.catalogo.AuditoriaModeracion;
+import cue.edu.co.yousongbackend.control.AuditoriaService;
+import cue.edu.co.yousongbackend.control.ResultadoAuditoria;
 import cue.edu.co.yousongbackend.catalogo.BloqueosVigentes;
 import cue.edu.co.yousongbackend.cola.ColaConsultas;
 import cue.edu.co.yousongbackend.cola.ColaConsultas.Fila;
@@ -70,12 +71,12 @@ public class ReproduccionService {
     private final RotacionListaDefecto rotacion;
     private final BloqueosVigentes bloqueos;
     private final EventoOutboxPublisher eventos;
-    private final AuditoriaModeracion auditoria;
+    private final AuditoriaService auditoria;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
     ReproduccionService(VersionCola versionCola, ColaConsultas consultas, RotacionListaDefecto rotacion,
-                        BloqueosVigentes bloqueos, EventoOutboxPublisher eventos, AuditoriaModeracion auditoria,
+                        BloqueosVigentes bloqueos, EventoOutboxPublisher eventos, AuditoriaService auditoria,
                         JdbcTemplate jdbc, Clock clock) {
         this.versionCola = versionCola;
         this.consultas = consultas;
@@ -169,7 +170,7 @@ public class ReproduccionService {
                 sesionId, "SOLICITUD", solicitudId, ((Number) cambio.get("version")).longValue(), payload);
         versionCola.publicarCambio(sesion.establecimientoId(), sesionId, sesion.colaVersion(), "request_removed",
                 correlacion);
-        auditoria.exito(sesion.establecimientoId(), "REQUEST_REMOVED", "SOLICITUD", solicitudId, correlacion);
+        auditoria.registrar(sesion.establecimientoId(), "REQUEST_REMOVED", "SOLICITUD", solicitudId, ResultadoAuditoria.EXITO, correlacion);
         return new EliminacionResponse(solicitudId, EstadoSolicitud.SALTADA, ReproduccionDtos.ELIMINADA_POR_PERSONAL,
                 sesion.colaVersion());
     }
@@ -258,7 +259,7 @@ public class ReproduccionService {
         eventos.publicar("playback.finished", AmbitoEvento.B, PRODUCTOR, correlacion, sesion.establecimientoId(),
                 sesion.id(), "REPRODUCCION", abierta.id(), 1, payload);
         if (resultado == ResultadoFin.SALTADA) {
-            auditoria.exito(sesion.establecimientoId(), "PLAYBACK_SKIPPED", "REPRODUCCION", abierta.id(), correlacion);
+            auditoria.registrar(sesion.establecimientoId(), "PLAYBACK_SKIPPED", "REPRODUCCION", abierta.id(), ResultadoAuditoria.EXITO, correlacion);
         }
         return new FinReproduccionResponse(abierta.id(), abierta.solicitudId(), resultado.resultado(), motivoCodigo,
                 ahora, sesion.colaVersion());

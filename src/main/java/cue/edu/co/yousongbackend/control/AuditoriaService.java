@@ -40,6 +40,13 @@ public class AuditoriaService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void registrar(UUID establecimientoId, String accion, String entidadTipo, UUID entidadRef,
                           ResultadoAuditoria resultado) {
+        registrar(establecimientoId, accion, entidadTipo, entidadRef, resultado, UUID.randomUUID());
+    }
+
+    /** Same, sharing the correlation id of the events the action published, so they can be joined later. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void registrar(UUID establecimientoId, String accion, String entidadTipo, UUID entidadRef,
+                          ResultadoAuditoria resultado, UUID correlacionId) {
         Auditoria auditoria = new Auditoria();
         auditoria.setId(UUID.randomUUID());
         auditoria.setEstablecimientoId(establecimientoId);
@@ -47,7 +54,7 @@ public class AuditoriaService {
         auditoria.setEntidadTipo(entidadTipo);
         auditoria.setEntidadRef(entidadRef);
         auditoria.setResultado(resultado);
-        auditoria.setCorrelacionId(UUID.randomUUID());
+        auditoria.setCorrelacionId(correlacionId);
         auditoria.setRegistradaAt(clock.instant().truncatedTo(ChronoUnit.MICROS));
         entityManager.persist(auditoria);
     }
