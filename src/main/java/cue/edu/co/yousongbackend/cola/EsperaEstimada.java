@@ -12,7 +12,8 @@ import java.util.List;
  * ({@code cancion.duracion_operativa_s}) of every item ahead of it. What is left of the playing song is its
  * operating duration minus the seconds elapsed since {@code reproduccion.iniciada_at}, never below zero (a song
  * that overruns its estimate counts as about to end). The column defaults to the initial reference of 240
- * seconds ("referencia inicial de 240 segundos si falta"); a missing or non-positive value is still read as
+ * seconds ("referencia inicial de 240 segundos si falta") and takes the provider duration when the catalog stores
+ * or refreshes the song (see {@code CancionRepository#actualizarMetadatos}); a missing or non-positive value is still read as
  * 240. It is an estimate: popularity can reorder the queue at any time.
  */
 final class EsperaEstimada {

@@ -26,9 +26,15 @@ public interface CancionRepository extends JpaRepository<Cancion, UUID> {
     /**
      * Stores what the provider said about a video. A bulk update on purpose: callers run it for ids in
      * sorted order so concurrent publications lock the rows in the same order (song has no {@code @Version}).
+     *
+     * <p>The operating duration (used by the estimated waits) starts from the provider duration: it is set when it
+     * still holds the untouched 240-second default and the provider gave a duration ({@code null} means none). A
+     * value that differs from 240 was chosen on purpose and is never overwritten.
      */
     @Modifying(flushAutomatically = true)
     @Query("update Cancion c set c.titulo = :titulo, c.miniaturaUrl = :miniatura, c.duracionProveedorS = :duracion, "
+            + "c.duracionOperativaS = case when :duracion is not null and c.duracionOperativaS = 240 "
+            + "then :duracion else c.duracionOperativaS end, "
             + "c.canalTitulo = :canal, c.disponibilidad = :disponibilidad, c.validadoAt = :validadoAt, "
             + "c.metadatosExpiranAt = :expiraAt where c.youtubeVideoId = :videoId")
     int actualizarMetadatos(@Param("videoId") String videoId, @Param("titulo") String titulo,
