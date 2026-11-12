@@ -43,18 +43,29 @@ public class CuotaYoutube {
 
     private static final ZoneId ZONA = ZoneId.of("America/Los_Angeles");
 
-    /** One share of the daily quota and the daily budget of each establishment within it. */
+    /**
+     * One share of the daily quota and the daily budget of each establishment within it.
+     *
+     * @param agotado          what a used establishment budget answers
+     * @param cuotaAgotada     what a used share answers
+     * @param presupuestoPrimero whether the establishment budget is checked before the quota and the share, so an
+     *                         owner over their own budget always gets the budget error
+     */
     private static final class Reparto {
         private final int limite;
         private final int presupuestoPorLocal;
         private final Tipo agotado;
+        private final Tipo cuotaAgotada;
+        private final boolean presupuestoPrimero;
         private final Map<UUID, Integer> usadasPorLocal = new HashMap<>();
         private int usadas;
 
-        private Reparto(int limite, int presupuestoPorLocal, Tipo agotado) {
+        private Reparto(int limite, int presupuestoPorLocal, Tipo agotado, Tipo cuotaAgotada, boolean presupuestoPrimero) {
             this.limite = limite;
             this.presupuestoPorLocal = Math.max(0, presupuestoPorLocal);
             this.agotado = agotado;
+            this.cuotaAgotada = cuotaAgotada;
+            this.presupuestoPrimero = presupuestoPrimero;
         }
 
         private void reiniciar() {
@@ -78,13 +89,31 @@ public class CuotaYoutube {
                  @Value("${app.propietario.search-units-per-establishment-per-day:1000}") int presupuestoPropietario) {
         this.reloj = reloj;
         this.limite = propiedades.dailyQuotaLimit();
-        this.participantes = new Reparto(parte(limite, participacion), presupuestoPorLocal, Tipo.BUDGET_EXHAUSTED);
+        validar(participacion, participacionPropietarios);
+        this.participantes = new Reparto(parte(limite, participacion), presupuestoPorLocal, Tipo.BUDGET_EXHAUSTED,
+                Tipo.QUOTA_EXCEEDED, false);
         this.propietarios = new Reparto(parte(limite, participacionPropietarios), presupuestoPropietario,
-                Tipo.OWNER_BUDGET_EXHAUSTED);
+                Tipo.OWNER_BUDGET_EXHAUSTED, Tipo.OWNER_SHARE_EXHAUSTED, true);
+    }
+
+    /** Fails fast on shares outside [0, 1] or adding up to more than the whole daily limit. */
+    private static void validar(double participacion, double participacionPropietarios) {
+        if (!(participacion >= 0 && participacion <= 1)) {
+            throw new IllegalStateException("app.youtube.participant-quota-share must be between 0 and 1, was "
+                    + participacion);
+        }
+        if (!(participacionPropietarios >= 0 && participacionPropietarios <= 1)) {
+            throw new IllegalStateException("app.youtube.owner-quota-share must be between 0 and 1, was "
+                    + participacionPropietarios);
+        }
+        if (participacion + participacionPropietarios > 1) {
+            throw new IllegalStateException("app.youtube.participant-quota-share (" + participacion
+                    + ") plus app.youtube.owner-quota-share (" + participacionPropietarios + ") must not exceed 1");
+        }
     }
 
     private static int parte(int limite, double participacion) {
-        return (int) Math.floor(limite * Math.max(0, Math.min(1, participacion)));
+        return (int) Math.floor(limite * participacion);
     }
 
     /** True while calls may still be made today. */
@@ -108,18 +137,27 @@ public class CuotaYoutube {
      * overshoot. Nothing is charged when it is refused.
      *
      * @return the quota day the units were charged to, to hand back to {@link #devolver} if the call fails
-     * @throws YoutubeException {@code QUOTA_EXCEEDED} when the quota or the caller's share would be passed,
+     * @throws YoutubeException {@code QUOTA_EXCEEDED} when the daily quota would be passed (or the participant
+     *                          share), {@code OWNER_SHARE_EXHAUSTED} when the owner share would be passed,
      *                          {@code BUDGET_EXHAUSTED} / {@code OWNER_BUDGET_EXHAUSTED} when the establishment's
-     *                          daily budget would be passed
+     *                          daily budget would be passed. For an owner the budget is checked first, so it wins
+     *                          when both apply.
      */
     public synchronized LocalDate reservar(OrigenBusqueda origen, int unidades) {
         Reparto reparto = reparto(origen);
         rotar();
-        if (agotada || usadas + unidades > limite || reparto.usadas + unidades > reparto.limite) {
+        int delLocal = reparto.usadasPorLocal.getOrDefault(origen.establecimientoId(), 0);
+        boolean sinPresupuesto = delLocal + unidades > reparto.presupuestoPorLocal;
+        if (sinPresupuesto && reparto.presupuestoPrimero) {
+            throw new YoutubeException(reparto.agotado);
+        }
+        if (agotada || usadas + unidades > limite) {
             throw new YoutubeException(Tipo.QUOTA_EXCEEDED);
         }
-        int delLocal = reparto.usadasPorLocal.getOrDefault(origen.establecimientoId(), 0);
-        if (delLocal + unidades > reparto.presupuestoPorLocal) {
+        if (reparto.usadas + unidades > reparto.limite) {
+            throw new YoutubeException(reparto.cuotaAgotada);
+        }
+        if (sinPresupuesto) {
             throw new YoutubeException(reparto.agotado);
         }
         reparto.usadasPorLocal.put(origen.establecimientoId(), delLocal + unidades);

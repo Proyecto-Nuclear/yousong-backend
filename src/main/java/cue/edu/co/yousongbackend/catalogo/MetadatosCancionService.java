@@ -45,14 +45,16 @@ public class MetadatosCancionService {
     /**
      * Fetches from YouTube the videos whose stored metadata is missing or expired, charged to {@code origen}
      * (videos.list units from the owner's daily budget and share). Best effort: when the catalog is not
-     * configured, unavailable or out of quota it answers an empty map (and logs a warning). The one exception is
-     * the establishment's own daily budget: when it is used and a video is not stored at all, the call is refused,
-     * so an owner cannot get unknown videos into the catalog once their lookups for the day are gone; stored
-     * songs whose metadata merely expired keep their old metadata.
+     * configured, unavailable or the provider's own daily quota is gone it answers an empty map (and logs a
+     * warning). The caller's own limits are not best effort: when the establishment's daily budget or the owner
+     * share is used and a video is not stored at all, the call is refused, so an owner cannot get unknown videos
+     * into the catalog once their lookups for the day are gone; stored songs whose metadata merely expired keep
+     * their old metadata.
      *
      * @return the details of the videos that were fetched, by video id
      * @throws ApiException 400 {@code VIDEO_UNAVAILABLE} when YouTube answers definitively that a video does
-     *                      not exist or cannot be played; 429 {@code SEARCH_BUDGET_EXHAUSTED} as described above
+     *                      not exist or cannot be played; 429 {@code SEARCH_BUDGET_EXHAUSTED} (budget) or 503
+     *                      {@code CATALOG_QUOTA_EXCEEDED} (owner share) as described above
      */
     public Map<String, VideoYoutube> consultar(Collection<String> videoIds, OrigenBusqueda origen) {
         Map<String, Cancion> guardadas = guardadas(videoIds);
@@ -64,9 +66,7 @@ public class MetadatosCancionService {
         try {
             respuesta = proveedor.obtener(vencidos, origen);
         } catch (YoutubeException e) {
-            boolean presupuesto = e.tipo() == YoutubeException.Tipo.OWNER_BUDGET_EXHAUSTED
-                    || e.tipo() == YoutubeException.Tipo.BUDGET_EXHAUSTED;
-            if (presupuesto && vencidos.stream().anyMatch(id -> !guardadas.containsKey(id))) {
+            if (limiteDelLlamante(e.tipo()) && vencidos.stream().anyMatch(id -> !guardadas.containsKey(id))) {
                 throw e.aApi();
             }
             log.warn("Song metadata not refreshed ({}): the default list is published without it", e.tipo());
@@ -126,6 +126,16 @@ public class MetadatosCancionService {
                     v.duracionSegundos() != null && v.duracionSegundos() > 0 ? v.duracionSegundos() : null,
                     recortar(v.canal(), MAX_CANAL), Disponibilidad.DISPONIBLE, ahora, expira);
         });
+    }
+
+    /**
+     * A limit of the caller (its establishment budget or the owner share), as opposed to the provider being out of
+     * quota or unavailable: only the latter allows publishing without metadata.
+     */
+    private static boolean limiteDelLlamante(YoutubeException.Tipo tipo) {
+        return tipo == YoutubeException.Tipo.OWNER_BUDGET_EXHAUSTED
+                || tipo == YoutubeException.Tipo.OWNER_SHARE_EXHAUSTED
+                || tipo == YoutubeException.Tipo.BUDGET_EXHAUSTED;
     }
 
     private Map<String, Cancion> guardadas(Collection<String> videoIds) {

@@ -8,6 +8,12 @@ public class YoutubeException extends RuntimeException {
     public enum Tipo {
         NOT_CONFIGURED("CATALOG_NOT_CONFIGURED", "The YouTube catalog is not configured"),
         QUOTA_EXCEEDED("CATALOG_QUOTA_EXCEEDED", "The YouTube daily quota is exhausted; try again later"),
+        /**
+         * Not the provider's quota: all establishment owners together used their share of it. Same contract as
+         * {@link #QUOTA_EXCEEDED} (503 {@code CATALOG_QUOTA_EXCEEDED}), but a distinct kind so callers never treat
+         * it as the provider being out of quota (which allows a best-effort fallback).
+         */
+        OWNER_SHARE_EXHAUSTED("CATALOG_QUOTA_EXCEEDED", "The YouTube daily quota is exhausted; try again later"),
         UNAVAILABLE("CATALOG_UNAVAILABLE", "The YouTube catalog is not available right now"),
         /** Not a provider failure: the establishment used its daily search budget. Answered as 429. */
         BUDGET_EXHAUSTED("SEARCH_BUDGET_EXHAUSTED",

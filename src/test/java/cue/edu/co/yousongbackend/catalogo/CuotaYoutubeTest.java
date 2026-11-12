@@ -174,11 +174,51 @@ class CuotaYoutubeTest {
 
         assertThat(rechazo(() -> cuota.reservar(propietario(UUID.randomUUID()), BUSQUEDA)))
                 .as("202 + 101 would pass the owner share of 250")
-                .isEqualTo(YoutubeException.Tipo.QUOTA_EXCEEDED);
+                .isEqualTo(YoutubeException.Tipo.OWNER_SHARE_EXHAUSTED);
         for (int i = 0; i < 4; i++) {
             assertThat(rechazo(() -> cuota.reservar(UUID.randomUUID(), BUSQUEDA))).as("participant " + i).isNull();
         }
         assertThat(cuota.disponible()).as("a reserve stays for the system").isTrue();
+    }
+
+    @Test
+    void theOwnerShareIsItsOwnKindButKeepsTheQuotaContract() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000, 0.1, 100_000);
+
+        assertThatThrownBy(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA))
+                .isInstanceOfSatisfying(YoutubeException.class, e -> {
+                    assertThat(e.tipo()).isEqualTo(YoutubeException.Tipo.OWNER_SHARE_EXHAUSTED);
+                    assertThat(e.aApi().status().value()).isEqualTo(503);
+                    assertThat(e.aApi().code()).isEqualTo("CATALOG_QUOTA_EXCEEDED");
+                });
+    }
+
+    @Test
+    void theOwnerBudgetWinsOverTheOwnerShareWhenBothAreUsed() {
+        CuotaYoutube cuota = cuota(1000, 0.5, 100_000, 0.25, 2 * BUSQUEDA);
+        cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+        cuota.reservar(propietario(LOCAL_A), BUSQUEDA);
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_B), BUSQUEDA)))
+                .isEqualTo(YoutubeException.Tipo.OWNER_SHARE_EXHAUSTED);
+
+        assertThat(rechazo(() -> cuota.reservar(propietario(LOCAL_A), BUSQUEDA)))
+                .isEqualTo(YoutubeException.Tipo.OWNER_BUDGET_EXHAUSTED);
+    }
+
+    @Test
+    void sharesMustEachBeWithinZeroAndOneAndNotAddUpToMoreThanTheWholeQuota() {
+        assertThatThrownBy(() -> cuota(1000, 0.8, 100, 0.3, 100))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.youtube.participant-quota-share")
+                .hasMessageContaining("app.youtube.owner-quota-share");
+        assertThatThrownBy(() -> cuota(1000, -0.1, 100, 0.25, 100))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.youtube.participant-quota-share");
+        assertThatThrownBy(() -> cuota(1000, 0.7, 100, 1.1, 100))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.youtube.owner-quota-share");
+        assertThatThrownBy(() -> cuota(1000, Double.NaN, 100, 0.25, 100)).isInstanceOf(IllegalStateException.class);
+        assertThat(cuota(1000, 0.75, 100, 0.25, 100).disponible()).as("exactly the whole quota is fine").isTrue();
     }
 
     @Test
