@@ -243,8 +243,10 @@ public class ParticipacionService {
                     "The session this credential belonged to has ended");
         }
         Establecimiento establecimiento = establecimientos.obtener(sesion.getEstablecimientoId());
-        return new MiSesionResponse(new EstablecimientoResumen(establecimiento.getNombre()),
-                EstadoServicio.de(sesion.getEstado()), participante.seudonimo());
+        // The same state the public status reports (pause, maintenance, schedule), so the views agree.
+        EstadoServicio servicio = estados.resolver(establecimiento, () -> Optional.of(sesion)).servicio();
+        return new MiSesionResponse(new EstablecimientoResumen(establecimiento.getNombre()), servicio,
+                participante.seudonimo());
     }
 
     /**

@@ -101,7 +101,10 @@ public class ColaService {
                 .filter(encontrada -> SesionService.enOperacion(encontrada.getEstado()))
                 .orElseThrow(() -> ApiException.unauthorized(VerificacionCredencial.SESSION_ENDED,
                         "The session this credential belonged to has ended"));
-        return instantanea(sesion, participante.participacionId(), EstadoServicio.de(sesion.getEstado()));
+        // Same state as the public views: the session is in operation, but a pause or schedule still shows.
+        EstadoServicio estado = estados.resolver(establecimientos.obtener(sesion.getEstablecimientoId()),
+                () -> Optional.of(sesion)).servicio();
+        return instantanea(sesion, participante.participacionId(), estado);
     }
 
     private ColaResponse instantanea(Sesion sesion, UUID participacionId, EstadoServicio estado) {
