@@ -31,7 +31,7 @@ public class BloqueoContenido {
     @Column(name = "cancion_id", nullable = false)
     private UUID cancionId;
 
-    @Column(name = "personal_id", nullable = false)
+    @Column(name = "personal_id")
     private UUID personalId;
 
     @Column(name = "desde_at", nullable = false)

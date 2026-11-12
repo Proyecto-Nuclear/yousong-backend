@@ -1,5 +1,6 @@
 package cue.edu.co.yousongbackend.cola;
 
+import cue.edu.co.yousongbackend.catalogo.BloqueosVigentes;
 import cue.edu.co.yousongbackend.catalogo.CancionRepository;
 import cue.edu.co.yousongbackend.catalogo.MetadatosCancionService;
 import cue.edu.co.yousongbackend.catalogo.OrigenBusqueda;
@@ -44,7 +45,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Concurrency: every change starts with {@link VersionCola#avanzar}, which locks the session row, so queue
  * changes of one session are serialized and each one sees the previous one committed. The unique constraints
- * stay as a backstop: a violation is answered as {@code ALREADY_VOTED}, never as a server error. A song unknown
+ * stay as a backstop: a violation is answered as {@code ALREADY_VOTED}, never as a server error. A song the
+ * establishment blocked (see {@code catalogo.BloqueoContenidoService}) is answered 409 {@code SONG_BLOCKED}. A song unknown
  * to the catalog is looked up at YouTube BEFORE that transaction, so no provider call holds the lock.
  */
 @Service
@@ -58,6 +60,7 @@ public class SolicitudesService {
     private final CancionRepository canciones;
     private final MetadatosCancionService metadatos;
     private final EventoOutboxPublisher eventos;
+    private final BloqueosVigentes bloqueos;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaccion;
     private final Clock clock;
@@ -66,7 +69,8 @@ public class SolicitudesService {
 
     SolicitudesService(ColaConsultas consultas, VersionCola versionCola, LimitadorAccionesCola limitador,
                        CancionRepository canciones, MetadatosCancionService metadatos, EventoOutboxPublisher eventos,
-                       JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock,
+                       BloqueosVigentes bloqueos, JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
+                       Clock clock,
                        @Value("${app.cola.re-request-minutes:30}") long minutosRepeticion,
                        @Value("${app.cola.max-active-per-session:200}") int maximoActivas) {
         if (minutosRepeticion < 0) {
@@ -81,6 +85,7 @@ public class SolicitudesService {
         this.canciones = canciones;
         this.metadatos = metadatos;
         this.eventos = eventos;
+        this.bloqueos = bloqueos;
         this.jdbc = jdbc;
         this.transaccion = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -121,6 +126,7 @@ public class SolicitudesService {
                     solicitudId, sesion.id());
             SolicitudActual solicitud = encontradas.stream().findFirst().orElseThrow(() ->
                     ApiException.notFound("REQUEST_NOT_FOUND", "The request does not exist in this session"));
+            exigirNoBloqueada(sesion, solicitud.cancionId());
             if (!solicitud.estado().activa()) {
                 throw ApiException.conflict("REQUEST_NOT_ACTIVE", "The request is no longer in the queue");
             }
@@ -140,6 +146,7 @@ public class SolicitudesService {
         if ("NO_DISPONIBLE".equals(cancion.disponibilidad())) {
             throw ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
         }
+        exigirNoBloqueada(sesion, cancion.id());
 
         Optional<SolicitudActual> activa = jdbc.query("SELECT id, cancion_id, estado FROM operacion.solicitud "
                         + "WHERE sesion_id = ? AND cancion_id = ? AND estado IN ('PENDIENTE', 'RESERVADA', 'REPRODUCIENDO')",
@@ -236,6 +243,16 @@ public class SolicitudesService {
         if (fin != null && fin.toInstant().plus(ventanaRepeticion).isAfter(ahora)) {
             throw ApiException.conflict("SONG_RECENTLY_PLAYED", "This song played less than "
                     + ventanaRepeticion.toMinutes() + " minutes ago; it can be requested again later");
+        }
+    }
+
+    /**
+     * A song the establishment blocked can be neither requested nor voted, also when a request of it is still
+     * playing. Checked after the session lock, which a block creation also takes, so it sees every committed block.
+     */
+    private void exigirNoBloqueada(SesionBloqueada sesion, UUID cancionId) {
+        if (bloqueos.bloqueada(sesion.establecimientoId(), cancionId, ahora())) {
+            throw ApiException.conflict("SONG_BLOCKED", "This song is blocked in this establishment");
         }
     }
 

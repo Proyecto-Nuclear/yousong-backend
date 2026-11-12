@@ -62,6 +62,67 @@ public abstract class ColaApiTestSupport extends ParticipanteApiTestSupport {
         return post("/api/mi-establecimiento/reproduccion/fin", bearer, "{\"resultado\":\"" + resultado + "\"}");
     }
 
+    /** Finishes the playing song as SALTADA with a skip reason ({@code null} sends no reason). */
+    protected HttpResponse<String> finSaltada(String motivo, String bearer) {
+        String cuerpo = motivo == null ? "{\"resultado\":\"SALTADA\"}"
+                : "{\"resultado\":\"SALTADA\",\"motivoCodigo\":\"" + motivo + "\"}";
+        return post("/api/mi-establecimiento/reproduccion/fin", bearer, cuerpo);
+    }
+
+    /** Skips the playing song and starts the next one ({@code null} sends no body). */
+    protected HttpResponse<String> saltar(String motivo, String bearer) {
+        return motivo == null ? post("/api/mi-establecimiento/reproduccion/saltar", bearer)
+                : post("/api/mi-establecimiento/reproduccion/saltar", bearer, "{\"motivoCodigo\":\"" + motivo + "\"}");
+    }
+
+    protected HttpResponse<String> eliminarDeCola(Object solicitudId, String bearer) {
+        return delete("/api/mi-establecimiento/cola/" + solicitudId, bearer);
+    }
+
+    /** Blocks the song for the given minutes ({@code null} = permanent) with the given reason code. */
+    protected HttpResponse<String> bloquear(String bearer, String videoId, Integer minutos, String motivo) {
+        String vigencia = minutos == null ? "\"permanente\":true" : "\"duracionMinutos\":" + minutos;
+        return post("/api/mi-establecimiento/bloqueos", bearer,
+                "{\"videoId\":\"" + videoId + "\"," + vigencia + ",\"motivoCodigo\":\"" + motivo + "\"}");
+    }
+
+    /** Blocks the song for an hour and returns the id of the block. */
+    protected UUID bloqueada(String bearer, String videoId) {
+        HttpResponse<String> response = bloquear(bearer, videoId, 60, "INAPROPIADO");
+        if (response.statusCode() != 201) {
+            throw new AssertionError("block failed: " + response.statusCode() + " " + response.body());
+        }
+        return UUID.fromString(json(response).get("id").asString());
+    }
+
+    protected UUID cancionDeVideo(String videoId) {
+        return jdbc.queryForObject("SELECT id FROM operacion.cancion WHERE youtube_video_id = ?", UUID.class, videoId);
+    }
+
+    /**
+     * An active establishment whose newest default list holds the given stored songs in this order, with the
+     * given rotation policy, and an open session pinned to that list.
+     */
+    protected Local localConLista(String politica, String... videoIds) {
+        Local local = establecimiento();
+        UUID lista = UUID.randomUUID();
+        jdbc.update("INSERT INTO operacion.lista_defecto (id, establecimiento_id, nombre, version, politica_rotacion) "
+                + "VALUES (?, ?, 'General', 1, ?)", lista, local.id(), politica);
+        for (int i = 0; i < videoIds.length; i++) {
+            jdbc.update("INSERT INTO operacion.item_lista (id, lista_id, cancion_id, posicion) VALUES (?, ?, ?, ?)",
+                    UUID.randomUUID(), lista, cancionDeVideo(videoIds[i]), i + 1);
+        }
+        abrirSesion(local);
+        return local;
+    }
+
+    /** Video id of the song the open playback of the session plays. */
+    protected String videoSonando(UUID sesionId) {
+        return jdbc.queryForObject("SELECT c.youtube_video_id FROM operacion.reproduccion r "
+                + "JOIN operacion.cancion c ON c.id = r.cancion_id WHERE r.sesion_id = ? AND r.terminada_at IS NULL",
+                String.class, sesionId);
+    }
+
     protected UUID sesionDe(Local local) {
         return jdbc.queryForObject("SELECT id FROM operacion.sesion WHERE establecimiento_id = ? "
                 + "AND estado IN ('ABIERTA', 'PAUSADA', 'CERRANDO')", UUID.class, local.id());
