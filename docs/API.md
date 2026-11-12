@@ -850,10 +850,11 @@ session opened inside a window is closed automatically when the establishment le
 
 Every call creates a **new version** (`version` = previous max for that name + 1); lists are never edited.
 Metadata is fetched from YouTube first, 1 unit per 50 songs whose metadata is missing or expired, charged to the
-owner's daily budget and share (best effort: if the catalog is not configured, unavailable or out of quota the
-list is published without metadata and those fields stay `null`). The exception is the owner's own daily budget:
-once it is used, a list with a song the catalog never stored is refused with `429 SEARCH_BUDGET_EXHAUSTED`; a list
-whose songs are all stored is still published (expired metadata is kept).
+owner's daily budget and share (best effort: if the catalog is not configured, unavailable or YouTube's own daily
+quota is gone the list is published without metadata and those fields stay `null`). The owner limits are not best
+effort: once the owner's daily budget is used (`429 SEARCH_BUDGET_EXHAUSTED`, which wins when both apply) or the
+owner share of the quota is used (`503 CATALOG_QUOTA_EXCEEDED`), a list with a song the catalog never stored is
+refused and nothing is written; a list whose songs are all stored is still published (expired metadata is kept).
 
 Response `201`, `Location: /api/mi-establecimiento/lista-defecto`:
 
@@ -1645,8 +1646,8 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
     uncached searches and new-song lookups (`503 CATALOG_QUOTA_EXCEEDED`) until the reset; patrons keep their own
     share.
 20. **All limits and the quota counters are in memory per instance** and reset on restart; behind a reverse proxy
-    without `server.forward-headers-strategy`, every client shares the proxy address, so the per-address join
-    and SSE limits become global.
+    without `server.forward-headers-strategy`, every client shares the proxy address, so the per-address join,
+    SSE and establishment-creation (5 per hour) limits become global.
 21. **`PUT /lista-defecto` with an unconfigured/unavailable catalog accepts any well-formed id** (metadata is
     best effort) and stores songs with `null` title/duration/thumbnail; with a working catalog an unknown id is
     `400 VIDEO_UNAVAILABLE`.
@@ -1669,7 +1670,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.youtube.daily-quota-limit` | 9000 | Units/day the server allows itself |
 | `app.youtube.participant-quota-share` | 0.7 | Share of the daily limit for participants |
 | `app.participante.search-units-per-establishment-per-day` | 2500 | Per-establishment participant budget |
-| `app.youtube.owner-quota-share` | 0.25 | Share of the daily limit for all owners together |
+| `app.youtube.owner-quota-share` | 0.25 | Share of the daily limit for all owners together; each share must be within [0, 1] and both together at most 1, or the server refuses to start |
 | `app.propietario.search-units-per-establishment-per-day` | 1000 | Per-establishment owner budget (searches, default-list and block lookups) |
 | `app.propietario.search-per-minute` | 10 | Owner catalog searches/min per establishment |
 | `app.propietario.suggestions-per-minute` | 60 | Owner suggestions/min per establishment |
