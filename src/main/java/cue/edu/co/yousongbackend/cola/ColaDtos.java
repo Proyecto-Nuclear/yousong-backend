@@ -52,10 +52,28 @@ public final class ColaDtos {
     }
 
     /**
+     * An upcoming song of the default list. Shaped like {@link ItemCola} without {@code solicitudId} and
+     * {@code votos}: it is not a request, so it cannot be supported, and it carries no {@code votado} either, in
+     * the participant's view too. {@code posicion} continues after the requests of {@code cola} (2 requests: the
+     * first default song is position 3); {@code esperaEstimadaSegundos} counts what is left of the song playing,
+     * every request and the default songs ahead of it ({@link EsperaEstimada}).
+     */
+    public record ItemDefecto(int posicion, CancionCola cancion, long esperaEstimadaSegundos) {
+    }
+
+    /**
      * A snapshot of the queue. {@code colaVersion} is {@code sesion.cola_version} read in the same snapshot as the
      * items (0 when there is no session in operation), so a client can drop an older snapshot or event.
+     *
+     * <p>{@code proximasDefecto} previews the default list that plays once the requests run out (at most
+     * {@code app.cola.default-preview-size}, 5 by default), in the order the rotation will pick it, skipping
+     * blocked and unavailable songs; the requests of {@code cola} always play first. {@code rotacionDefecto} is the
+     * policy of the list the session pinned: {@code SECUENCIAL}, or {@code ALEATORIA}, whose next song cannot be
+     * predicted, so its preview is always empty. Without a session in operation, or when nothing of the list is
+     * playable, the preview is empty and {@code rotacionDefecto} is null. A list republished during a session
+     * applies from the next session, so it does not change the preview of the running one.
      */
     public record ColaResponse(long colaVersion, EstadoServicio estado, EnReproduccion enReproduccion,
-                               List<ItemCola> cola) {
+                               List<ItemCola> cola, List<ItemDefecto> proximasDefecto, String rotacionDefecto) {
     }
 }
