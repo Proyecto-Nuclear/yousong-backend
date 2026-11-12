@@ -117,6 +117,21 @@ class SolicitudesApiTest extends ColaApiTestSupport {
     }
 
     @Test
+    void anActiveRequestWhoseSongBecameUnavailableCannotBeVoted() {
+        Local local = localAbierto();
+        String video = videoGuardado();
+        UUID solicitud = solicitada(unirse(local), video);
+        UUID otra = solicitada(unirse(local), videoGuardado());
+        jdbc.update("UPDATE operacion.cancion SET disponibilidad = 'NO_DISPONIBLE' WHERE youtube_video_id = ?", video);
+        String token = unirse(local);
+
+        assertProblema(votar(token, solicitud), 409, "SONG_UNAVAILABLE");
+        assertThat(votos(solicitud)).isEqualTo(1);
+        assertThat(votar(token, otra).statusCode()).isEqualTo(200);
+        assertThat(votos(otra)).isEqualTo(2);
+    }
+
+    @Test
     void aPausedSessionDoesNotAcceptRequestsOrVotes() {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);

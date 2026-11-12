@@ -47,7 +47,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>Concurrency: every change starts with {@link VersionCola#avanzar}, which locks the session row, so queue
  * changes of one session are serialized and each one sees the previous one committed. The unique constraints
  * stay as a backstop: a violation is answered as {@code ALREADY_VOTED}, never as a server error. A song the
- * establishment blocked (see {@code catalogo.BloqueoContenidoService}) is answered 409 {@code SONG_BLOCKED}. A song unknown
+ * establishment blocked (see {@code catalogo.BloqueoContenidoService}) is answered 409 {@code SONG_BLOCKED}, and a song stored as {@code NO_DISPONIBLE} 409 {@code SONG_UNAVAILABLE},
+ * for a new request and for a vote on an active one alike. A song unknown
  * to the catalog is looked up at YouTube BEFORE that transaction, so no provider call holds the lock.
  */
 @Service
@@ -130,6 +131,7 @@ public class SolicitudesService {
             SolicitudActual solicitud = encontradas.stream().findFirst().orElseThrow(() ->
                     ApiException.notFound("REQUEST_NOT_FOUND", "The request does not exist in this session"));
             exigirNoBloqueada(sesion, solicitud.cancionId());
+            exigirDisponible(solicitud.cancionId());
             if (!solicitud.estado().activa()) {
                 throw ApiException.conflict("REQUEST_NOT_ACTIVE", "The request is no longer in the queue");
             }
@@ -147,7 +149,7 @@ public class SolicitudesService {
                         videoId).stream().findFirst()
                 .orElseThrow(() -> ApiException.notFound("SONG_NOT_FOUND", "The song is not in the catalog"));
         if ("NO_DISPONIBLE".equals(cancion.disponibilidad())) {
-            throw ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
+            throw noDisponible();
         }
         exigirNoBloqueada(sesion, cancion.id());
 
@@ -259,6 +261,14 @@ public class SolicitudesService {
         }
     }
 
+    /** A song YouTube reported unplayable here can be neither requested nor voted, also on an active request. */
+    private void exigirDisponible(UUID cancionId) {
+        if (!jdbc.queryForList("SELECT 1 FROM operacion.cancion WHERE id = ? AND disponibilidad = 'NO_DISPONIBLE'",
+                cancionId).isEmpty()) {
+            throw noDisponible();
+        }
+    }
+
     private boolean yaApoyo(UUID participacionId, UUID sesionId, UUID cancionId) {
         return !jdbc.queryForList("SELECT 1 FROM operacion.voto WHERE participacion_id = ? AND sesion_id = ? "
                 + "AND cancion_id = ?", participacionId, sesionId, cancionId).isEmpty();
@@ -277,6 +287,10 @@ public class SolicitudesService {
 
     private static ApiException noAcepta() {
         return ApiException.conflict("SESSION_NOT_ACCEPTING", "The session is not taking requests or votes right now");
+    }
+
+    private static ApiException noDisponible() {
+        return ApiException.conflict("SONG_UNAVAILABLE", "This song cannot be played here");
     }
 
     private static ApiException yaVotado() {
