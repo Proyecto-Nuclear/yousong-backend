@@ -53,13 +53,13 @@ public abstract class ColaApiTestSupport extends ParticipanteApiTestSupport {
         return get(COLA_PARTICIPANTE, token);
     }
 
-    protected HttpResponse<String> siguiente(UUID sesionId, String bearer) {
-        return post("/api/staff/sesiones/" + sesionId + "/reproduccion/siguiente", bearer);
+    /** Starts the next song of the caller's session in operation (the bearer's own establishment). */
+    protected HttpResponse<String> siguiente(String bearer) {
+        return post("/api/mi-establecimiento/reproduccion/siguiente", bearer);
     }
 
-    protected HttpResponse<String> fin(UUID sesionId, String resultado, String bearer) {
-        return post("/api/staff/sesiones/" + sesionId + "/reproduccion/fin", bearer,
-                "{\"resultado\":\"" + resultado + "\"}");
+    protected HttpResponse<String> fin(String resultado, String bearer) {
+        return post("/api/mi-establecimiento/reproduccion/fin", bearer, "{\"resultado\":\"" + resultado + "\"}");
     }
 
     protected UUID sesionDe(Local local) {

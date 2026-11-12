@@ -51,7 +51,7 @@ class ParticipantePresupuestoBusquedaApiTest extends ParticipanteApiTestSupport 
     }
 
     private HttpResponse<String> buscarComoStaff(String consulta) {
-        return get("/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), operatorToken());
+        return get("/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), propietarioToken());
     }
 
     private static String code(HttpResponse<String> response) {

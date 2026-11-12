@@ -30,8 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Opens and closes music sessions. A session is one night of service of one establishment.
  *
- * <p>Known limitation, accepted for the one-establishment pilot: authorization is by role only. Any
- * authenticated administrator can operate any establishment; per-establishment membership is not checked yet.
+ * <p>Authorization is ownership: the owner API passes the establishment of the calling account (see
+ * {@code establecimiento.PropietarioActual}), never an establishment or session id chosen by a client.
  */
 @Service
 public class SesionService {
@@ -149,6 +149,20 @@ public class SesionService {
         }
 
         return new CierreSesionResponse(SesionResponse.de(sesion), pendientes);
+    }
+
+    /** Closes the session in operation of the establishment (404 NO_ACTIVE_SESSION when there is none). */
+    @Transactional
+    public CierreSesionResponse cerrarActual(UUID establecimientoId) {
+        // Only the id is read here: cerrar() then loads the row with its lock, so a concurrent close is seen fresh.
+        return cerrar(idEnOperacion(establecimientoId));
+    }
+
+    /** The id of the session in operation of the establishment (404 NO_ACTIVE_SESSION when there is none). */
+    @Transactional(readOnly = true)
+    public UUID idEnOperacion(UUID establecimientoId) {
+        return sesiones.findIdEnOperacion(establecimientoId, EN_OPERACION)
+                .orElseThrow(() -> ApiException.notFound("NO_ACTIVE_SESSION", "The establishment has no session in operation"));
     }
 
     @Transactional(readOnly = true)

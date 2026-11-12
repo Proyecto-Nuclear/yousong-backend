@@ -75,8 +75,8 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
 
     @Test
     void aStaffTokenDoesNotOpenParticipantEndpoints() {
-        assertCredencialRechazada(get(MI_SESION, adminToken()), "INVALID_CREDENTIAL");
-        assertCredencialRechazada(get(MI_SESION, operatorToken()), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(get(MI_SESION, propietarioToken()), "INVALID_CREDENTIAL");
+        assertCredencialRechazada(get(MI_SESION, tokenSinEstablecimiento()), "INVALID_CREDENTIAL");
     }
 
     @Test
@@ -84,8 +84,9 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
         Local local = localAbierto();
         String token = unirse(local);
 
-        assertThat(get("/api/staff/establecimientos/" + local.id() + "/sesion-actual", token).statusCode()).isEqualTo(401);
-        assertThat(get("/api/admin/establecimientos/" + local.id() + "/qr", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/sesion-actual", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/qr", token).statusCode()).isEqualTo(401);
+        assertThat(post(CIERRE, token).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -187,7 +188,7 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
                         () -> unirse(local.slug(), cuerpo("WEB", POLICY_VERSION, true, false)))));
             }
             Future<HttpResponse<String>> cierre = pool.submit(enCuantoSalga(salida,
-                    () -> post("/api/admin/sesiones/" + sesionId + "/cierre", adminToken())));
+                    () -> post(CIERRE, local.token())));
             salida.countDown();
 
             assertThat(cierre.get().statusCode()).as(cierre.get().body()).isEqualTo(200);
@@ -227,7 +228,7 @@ class AccesoParticipanteApiTest extends ParticipanteApiTestSupport {
             }));
             bloqueada.await();
             Future<HttpResponse<String>> cierre = pool.submit(
-                    () -> post("/api/admin/sesiones/" + sesionId + "/cierre", adminToken()));
+                    () -> post(CIERRE, local.token()));
 
             Thread.sleep(700);
             assertThat(cierre.isDone()).as("the close must wait for the join holding the shared lock").isFalse();

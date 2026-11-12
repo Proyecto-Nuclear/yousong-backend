@@ -19,20 +19,12 @@ import tools.jackson.databind.JsonNode;
 /** Opening, closing and reading music sessions through the HTTP API, with real security and PostgreSQL. */
 class SesionApiTest extends ApiIntegrationTest {
 
-    private static String abrir(Local local) {
-        return "/api/admin/establecimientos/" + local.id() + "/sesiones";
-    }
-
-    private static String cerrar(String sesionId) {
-        return "/api/admin/sesiones/" + sesionId + "/cierre";
-    }
-
-    private static String actual(Local local) {
-        return "/api/staff/establecimientos/" + local.id() + "/sesion-actual";
-    }
+    private static final String ABRIR = "/api/mi-establecimiento/sesiones";
+    private static final String CERRAR = "/api/mi-establecimiento/sesion/cierre";
+    private static final String ACTUAL = "/api/mi-establecimiento/sesion-actual";
 
     private String abrirSesion(Local local) {
-        HttpResponse<String> response = post(abrir(local), adminToken());
+        HttpResponse<String> response = post(ABRIR, local.token());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         return json(response).get("id").asString();
     }
@@ -40,10 +32,10 @@ class SesionApiTest extends ApiIntegrationTest {
     // ---------- open ----------
 
     @Test
-    void administratorOpensASessionForTheEstablishment() {
+    void theOwnerOpensASessionForTheirEstablishment() {
         Local local = localListoParaAbrir();
 
-        HttpResponse<String> response = post(abrir(local), adminToken());
+        HttpResponse<String> response = post(ABRIR, local.token());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         JsonNode body = json(response);
@@ -63,7 +55,7 @@ class SesionApiTest extends ApiIntegrationTest {
         Local local = establecimiento("Pacific/Kiritimati", true); // UTC+14: often a different day than UTC
         listaDefecto(local.id());
 
-        JsonNode body = json(post(abrir(local), adminToken()));
+        JsonNode body = json(post(ABRIR, local.token()));
 
         Instant openedAt = Instant.parse(body.get("abiertaAt").asString());
         assertThat(body.get("fechaOperativa").asString())
@@ -76,7 +68,7 @@ class SesionApiTest extends ApiIntegrationTest {
         listaDefecto(local.id(), "Vieja", "2026-01-01T00:00:00Z");
         UUID newest = listaDefecto(local.id(), "Nueva", "2026-02-01T00:00:00Z");
 
-        JsonNode body = json(post(abrir(local), adminToken()));
+        JsonNode body = json(post(ABRIR, local.token()));
 
         assertThat(body.get("listaId").asString()).isEqualTo(newest.toString());
     }
@@ -105,7 +97,7 @@ class SesionApiTest extends ApiIntegrationTest {
         Local local = localListoParaAbrir();
         abrirSesion(local);
 
-        HttpResponse<String> second = post(abrir(local), adminToken());
+        HttpResponse<String> second = post(ABRIR, local.token());
 
         assertThat(second.statusCode()).isEqualTo(409);
         assertThat(json(second).get("code").asString()).isEqualTo("SESSION_ALREADY_OPEN");
@@ -117,7 +109,7 @@ class SesionApiTest extends ApiIntegrationTest {
     void aNewSessionCanOpenOnceTheCurrentOneIsClosed() {
         Local local = localListoParaAbrir();
         String first = abrirSesion(local);
-        assertThat(post(cerrar(first), adminToken()).statusCode()).isEqualTo(200);
+        assertThat(post(CERRAR, local.token()).statusCode()).isEqualTo(200);
 
         String second = abrirSesion(local);
 
@@ -137,7 +129,7 @@ class SesionApiTest extends ApiIntegrationTest {
                 Callable<Integer> call = () -> {
                     ready.countDown();
                     go.await();
-                    return post(abrir(local), adminToken()).statusCode();
+                    return post(ABRIR, local.token()).statusCode();
                 };
                 results.add(pool.submit(call));
             }
@@ -161,7 +153,7 @@ class SesionApiTest extends ApiIntegrationTest {
     void anEstablishmentWithoutADefaultListCannotOpenASession() {
         Local local = establecimiento();
 
-        HttpResponse<String> response = post(abrir(local), adminToken());
+        HttpResponse<String> response = post(ABRIR, local.token());
 
         assertThat(response.statusCode()).isEqualTo(409);
         assertThat(json(response).get("code").asString()).isEqualTo("NO_DEFAULT_LIST");
@@ -170,11 +162,11 @@ class SesionApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void anUnknownEstablishmentIsNotFound() {
-        HttpResponse<String> response = post("/api/admin/establecimientos/" + UUID.randomUUID() + "/sesiones", adminToken());
+    void anAccountWithoutAnEstablishmentCannotOpenASession() {
+        HttpResponse<String> response = post(ABRIR, tokenSinEstablecimiento());
 
         assertThat(response.statusCode()).isEqualTo(404);
-        assertThat(json(response).get("code").asString()).isEqualTo("ESTABLISHMENT_NOT_FOUND");
+        assertThat(json(response).get("code").asString()).isEqualTo("NO_ESTABLISHMENT");
     }
 
     @Test
@@ -182,18 +174,17 @@ class SesionApiTest extends ApiIntegrationTest {
         Local local = establecimiento("America/Bogota", false);
         listaDefecto(local.id());
 
-        HttpResponse<String> response = post(abrir(local), adminToken());
+        HttpResponse<String> response = post(ABRIR, local.token());
 
         assertThat(response.statusCode()).isEqualTo(409);
         assertThat(json(response).get("code").asString()).isEqualTo("ESTABLISHMENT_INACTIVE");
     }
 
     @Test
-    void onlyAdministratorsOpenSessions() {
+    void openingRequiresAToken() {
         Local local = localListoParaAbrir();
 
-        assertThat(post(abrir(local), operatorToken()).statusCode()).isEqualTo(403);
-        assertThat(post(abrir(local), null).statusCode()).isEqualTo(401);
+        assertThat(post(ABRIR, null).statusCode()).isEqualTo(401);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM operacion.sesion WHERE establecimiento_id = ?",
                 Integer.class, local.id())).isZero();
     }
@@ -201,34 +192,35 @@ class SesionApiTest extends ApiIntegrationTest {
     // ---------- current session ----------
 
     @Test
-    void staffReadsTheCurrentSession() {
+    void theOwnerReadsTheCurrentSession() {
         Local local = localListoParaAbrir();
         String sesionId = abrirSesion(local);
 
-        for (String token : List.of(operatorToken(), adminToken())) {
-            HttpResponse<String> response = get(actual(local), token);
-            assertThat(response.statusCode()).isEqualTo(200);
-            assertThat(json(response).get("id").asString()).isEqualTo(sesionId);
-            assertThat(json(response).get("estado").asString()).isEqualTo("ABIERTA");
-        }
+        HttpResponse<String> response = get(ACTUAL, local.token());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json(response).get("id").asString()).isEqualTo(sesionId);
+        assertThat(json(response).get("estado").asString()).isEqualTo("ABIERTA");
     }
 
     @Test
     void thereIsNoCurrentSessionBeforeOpeningOrAfterClosing() {
         Local local = localListoParaAbrir();
-        HttpResponse<String> none = get(actual(local), operatorToken());
+        HttpResponse<String> none = get(ACTUAL, local.token());
         assertThat(none.statusCode()).isEqualTo(404);
         assertThat(json(none).get("code").asString()).isEqualTo("NO_ACTIVE_SESSION");
 
         String sesionId = abrirSesion(local);
-        post(cerrar(sesionId), adminToken());
+        post(CERRAR, local.token());
 
-        assertThat(get(actual(local), operatorToken()).statusCode()).isEqualTo(404);
+        assertThat(get(ACTUAL, local.token()).statusCode()).isEqualTo(404);
     }
 
     @Test
     void currentSessionRequiresAuthentication() {
-        assertThat(get(actual(localListoParaAbrir()), null).statusCode()).isEqualTo(401);
+        assertThat(get(ACTUAL, null).statusCode()).isEqualTo(401);
+        HttpResponse<String> sinLocal = get(ACTUAL, tokenSinEstablecimiento());
+        assertThat(sinLocal.statusCode()).isEqualTo(404);
+        assertThat(json(sinLocal).get("code").asString()).isEqualTo("NO_ESTABLISHMENT");
     }
 
     // ---------- close ----------
@@ -247,7 +239,7 @@ class SesionApiTest extends ApiIntegrationTest {
         UUID estacion = estacionHabilitada(local.id(), sesion);
         UUID reproduccion = reproduccionEnCurso(sesion, cancionSonando, estacion, sonando);
 
-        HttpResponse<String> response = post(cerrar(sesionId), adminToken());
+        HttpResponse<String> response = post(CERRAR, local.token());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         JsonNode body = json(response);
@@ -280,7 +272,7 @@ class SesionApiTest extends ApiIntegrationTest {
         solicitud(sesion, cancion(), creador, "PENDIENTE", null);
         solicitud(sesion, cancion(), creador, "PENDIENTE", null);
 
-        post(cerrar(sesionId), adminToken());
+        post(CERRAR, local.token());
 
         assertThat(jdbc.queryForObject("""
                 SELECT ambito || '|' || (payload ->> 'pendientes_al_cierre') || '|' || (agregado_version >= 1)
@@ -293,34 +285,37 @@ class SesionApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void closingTwiceIsRejected() {
+    void closingTwiceFindsNoSessionToClose() {
         Local local = localListoParaAbrir();
         String sesionId = abrirSesion(local);
-        assertThat(post(cerrar(sesionId), adminToken()).statusCode()).isEqualTo(200);
+        assertThat(post(CERRAR, local.token()).statusCode()).isEqualTo(200);
 
-        HttpResponse<String> again = post(cerrar(sesionId), adminToken());
+        HttpResponse<String> again = post(CERRAR, local.token());
 
-        assertThat(again.statusCode()).isEqualTo(409);
-        assertThat(json(again).get("code").asString()).isEqualTo("SESSION_ALREADY_CLOSED");
+        assertThat(again.statusCode()).isEqualTo(404);
+        assertThat(json(again).get("code").asString()).isEqualTo("NO_ACTIVE_SESSION");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM integracion.evento_outbox WHERE sesion_id = ?::uuid "
                 + "AND event_type = 'session.closed'", Integer.class, sesionId)).isEqualTo(1);
     }
 
     @Test
-    void closingAnUnknownSessionIsNotFound() {
-        HttpResponse<String> response = post(cerrar(UUID.randomUUID().toString()), adminToken());
+    void closingWithoutASessionInOperationIsNotFound() {
+        HttpResponse<String> response = post(CERRAR, localListoParaAbrir().token());
 
         assertThat(response.statusCode()).isEqualTo(404);
-        assertThat(json(response).get("code").asString()).isEqualTo("SESSION_NOT_FOUND");
+        assertThat(json(response).get("code").asString()).isEqualTo("NO_ACTIVE_SESSION");
+
+        HttpResponse<String> sinLocal = post(CERRAR, tokenSinEstablecimiento());
+        assertThat(sinLocal.statusCode()).isEqualTo(404);
+        assertThat(json(sinLocal).get("code").asString()).isEqualTo("NO_ESTABLISHMENT");
     }
 
     @Test
-    void onlyAdministratorsCloseSessions() {
+    void closingRequiresAToken() {
         Local local = localListoParaAbrir();
         String sesionId = abrirSesion(local);
 
-        assertThat(post(cerrar(sesionId), operatorToken()).statusCode()).isEqualTo(403);
-        assertThat(post(cerrar(sesionId), null).statusCode()).isEqualTo(401);
+        assertThat(post(CERRAR, null).statusCode()).isEqualTo(401);
         assertThat(jdbc.queryForObject("SELECT estado FROM operacion.sesion WHERE id = ?::uuid", String.class, sesionId))
                 .isEqualTo("ABIERTA");
     }
@@ -334,7 +329,7 @@ class SesionApiTest extends ApiIntegrationTest {
         UUID otherSolicitud = solicitud(UUID.fromString(otherId), cancion(), participacion(UUID.fromString(otherId)),
                 "PENDIENTE", null);
 
-        post(cerrar(mineId), adminToken());
+        post(CERRAR, mine.token());
 
         assertThat(jdbc.queryForObject("SELECT estado FROM operacion.sesion WHERE id = ?::uuid", String.class, otherId))
                 .isEqualTo("ABIERTA");

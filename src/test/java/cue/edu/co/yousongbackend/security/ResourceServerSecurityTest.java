@@ -33,7 +33,8 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Exercises the real resource-server configuration against a local JWKS endpoint, signing tokens
- * the way FusionAuth does (RS256, string issuer, application id as audience, {@code roles} claim).
+ * the way FusionAuth does (RS256, string issuer, application id as audience,
+ * {@code tty} claim). Roles play no part: any valid access token of the application reaches the owner zone.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ResourceServerSecurityTest extends PostgresIntegrationTest {
@@ -84,37 +85,37 @@ class ResourceServerSecurityTest extends PostgresIntegrationTest {
     // ---------- authentication ----------
 
     @Test
-    void staffZoneRejectsRequestsWithoutToken() throws Exception {
-        assertThat(get("/api/staff/ping", null).statusCode()).isEqualTo(401);
+    void ownerZoneRejectsRequestsWithoutToken() throws Exception {
+        assertThat(get("/api/mi-establecimiento/ping", null).statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsGarbageBearerToken() throws Exception {
-        assertThat(get("/api/staff/ping", "not-a-jwt").statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", "not-a-jwt").statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsExpiredToken() throws Exception {
         String token = token(SIGNING_KEY, ISSUER, AUDIENCE, List.of("OPERADOR"), Instant.now().minusSeconds(3600));
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", token).statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsTokenFromAnotherIssuer() throws Exception {
         String token = token(SIGNING_KEY, "evil-issuer", AUDIENCE, List.of("OPERADOR"), inOneHour());
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", token).statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsTokenForAnotherApplication() throws Exception {
         String token = token(SIGNING_KEY, ISSUER, UUID.randomUUID().toString(), List.of("OPERADOR"), inOneHour());
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", token).statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsTokenSignedWithAnUntrustedKey() throws Exception {
         String token = token(UNTRUSTED_KEY, ISSUER, AUDIENCE, List.of("ADMINISTRADOR"), inOneHour());
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", token).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -122,14 +123,14 @@ class ResourceServerSecurityTest extends PostgresIntegrationTest {
         // Same issuer, audience and signing key as an access token; only the token type differs.
         String idToken = token(SIGNING_KEY, ISSUER, AUDIENCE, UUID.randomUUID().toString(),
                 List.of("ADMINISTRADOR"), inOneHour(), "idt");
-        assertThat(get("/api/staff/ping", idToken).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", idToken).statusCode()).isEqualTo(401);
     }
 
     @Test
     void rejectsTokensWithoutATokenTypeClaim() throws Exception {
         String untyped = token(SIGNING_KEY, ISSUER, AUDIENCE, UUID.randomUUID().toString(),
                 List.of("ADMINISTRADOR"), inOneHour(), null);
-        assertThat(get("/api/staff/ping", untyped).statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", untyped).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -137,77 +138,66 @@ class ResourceServerSecurityTest extends PostgresIntegrationTest {
         String header = base64("{\"alg\":\"none\",\"typ\":\"JWT\"}");
         String claims = base64("{\"iss\":\"" + ISSUER + "\",\"aud\":\"" + AUDIENCE
                 + "\",\"sub\":\"x\",\"roles\":[\"ADMINISTRADOR\"],\"exp\":" + inOneHour().getEpochSecond() + "}");
-        assertThat(get("/api/staff/ping", header + "." + claims + ".").statusCode()).isEqualTo(401);
+        assertThat(get("/api/mi-establecimiento/ping", header + "." + claims + ".").statusCode()).isEqualTo(401);
     }
 
-    // ---------- authorization ----------
+    // ---------- authorization: any valid access token, no roles ----------
 
     @Test
-    void operatorReachesTheStaffZoneButNotTheAdminZone() throws Exception {
-        String token = validToken(List.of("OPERADOR"));
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(200);
-        assertThat(get("/api/admin/ping", token).statusCode()).isEqualTo(403);
-    }
-
-    @Test
-    void administratorReachesBothZones() throws Exception {
-        String token = validToken(List.of("ADMINISTRADOR"));
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(200);
-        assertThat(get("/api/admin/ping", token).statusCode()).isEqualTo(200);
+    void validTokenWithoutRolesReachesTheOwnerZone() throws Exception {
+        assertThat(get("/api/mi-establecimiento/ping", validToken(List.of())).statusCode()).isEqualTo(200);
     }
 
     @Test
-    void validTokenWithoutRolesIsForbiddenInStaffZone() throws Exception {
-        assertThat(get("/api/staff/ping", validToken(List.of())).statusCode()).isEqualTo(403);
+    void tokenWithoutAnyRolesClaimReachesTheOwnerZone() throws Exception {
+        String token = token(SIGNING_KEY, ISSUER, AUDIENCE, null, inOneHour());
+        assertThat(get("/api/mi-establecimiento/ping", token).statusCode()).isEqualTo(200);
     }
 
     @Test
-    void unknownRoleDoesNotGrantAccess() throws Exception {
-        assertThat(get("/api/staff/ping", validToken(List.of("CLIENTE"))).statusCode()).isEqualTo(403);
+    void rolesNeitherGrantNorRemoveAccess() throws Exception {
+        assertThat(get("/api/mi-establecimiento/ping", validToken(List.of("CLIENTE"))).statusCode()).isEqualTo(200);
+        assertThat(get("/api/mi-establecimiento/ping", validToken(List.of("ADMINISTRADOR"))).statusCode())
+                .isEqualTo(200);
     }
 
     @Test
     void principalSubjectIsTheIdentityProviderUserId() throws Exception {
         String sub = UUID.randomUUID().toString();
-        String token = token(SIGNING_KEY, ISSUER, AUDIENCE, sub, List.of("OPERADOR"), inOneHour());
-        HttpResponse<String> response = get("/api/staff/me", token);
+        String token = token(SIGNING_KEY, ISSUER, AUDIENCE, sub, List.of(), inOneHour());
+        HttpResponse<String> response = get("/api/mi-establecimiento/me", token);
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).isEqualTo(sub);
     }
 
     @Test
-    void adminZoneRejectsRequestsWithoutToken() throws Exception {
-        assertThat(get("/api/admin/ping", null).statusCode()).isEqualTo(401);
+    void ownerZoneRootRejectsRequestsWithoutToken() throws Exception {
+        assertThat(get("/api/mi-establecimiento", null).statusCode()).isEqualTo(401);
     }
 
     @Test
-    void operatorCannotWriteInTheAdminZone() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(uri("/api/admin/ping")).timeout(Duration.ofSeconds(10))
-                .header("Authorization", "Bearer " + validToken(List.of("OPERADOR")))
-                .POST(BodyPublishers.noBody()).build();
-        assertThat(http.send(request, BodyHandlers.ofString()).statusCode()).isEqualTo(403);
-    }
-
-    @Test
-    void tokenWithoutAnyRolesClaimIsForbidden() throws Exception {
-        String token = token(SIGNING_KEY, ISSUER, AUDIENCE, null, inOneHour());
-        assertThat(get("/api/staff/ping", token).statusCode()).isEqualTo(403);
+    void theOldRoleZonesAreGoneEvenForTokensWithTheOldRoles() throws Exception {
+        for (String path : List.of("/api/admin/establecimientos", "/api/staff/establecimientos",
+                "/api/staff/catalogo/busqueda?q=juanes")) {
+            assertThat(get(path, null).statusCode()).as(path).isEqualTo(401);
+            assertThat(get(path, validToken(List.of("ADMINISTRADOR"))).statusCode()).as(path).isIn(403, 404);
+        }
     }
 
     @Test
     void validTokensDoNotReachActuatorEndpointsBeyondHealthAndInfo() throws Exception {
-        assertThat(get("/actuator/env", validToken(List.of("OPERADOR"))).statusCode()).isEqualTo(403);
+        assertThat(get("/actuator/env", validToken(List.of("ADMINISTRADOR"))).statusCode()).isEqualTo(403);
     }
 
     @Test
-    void routesWithoutAnExplicitRuleAreDeniedEvenForAdministrators() throws Exception {
-        assertThat(get("/api/unlisted/ping", validToken(List.of("ADMINISTRADOR"))).statusCode()).isEqualTo(403);
+    void routesWithoutAnExplicitRuleAreDeniedForValidTokens() throws Exception {
+        assertThat(get("/api/unlisted/ping", validToken(List.of())).statusCode()).isEqualTo(403);
     }
 
     @Test
     void plainOptionsRequestsAreNotAnsweredAnonymously() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(uri("/api/admin/ping")).timeout(Duration.ofSeconds(10))
-                .method("OPTIONS", BodyPublishers.noBody()).build();
+        HttpRequest request = HttpRequest.newBuilder(uri("/api/mi-establecimiento/ping"))
+                .timeout(Duration.ofSeconds(10)).method("OPTIONS", BodyPublishers.noBody()).build();
         assertThat(http.send(request, BodyHandlers.ofString()).statusCode()).isEqualTo(401);
     }
 
@@ -215,7 +205,7 @@ class ResourceServerSecurityTest extends PostgresIntegrationTest {
 
     @Test
     void bearerRequestsNeverCreateSessionsOrCookies() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(uri("/api/staff/ping")).timeout(Duration.ofSeconds(10))
+        HttpRequest request = HttpRequest.newBuilder(uri("/api/mi-establecimiento/ping")).timeout(Duration.ofSeconds(10))
                 .header("Authorization", "Bearer " + validToken(List.of("OPERADOR")))
                 .POST(BodyPublishers.noBody()).build();
         HttpResponse<String> response = http.send(request, BodyHandlers.ofString());
@@ -246,7 +236,7 @@ class ResourceServerSecurityTest extends PostgresIntegrationTest {
     }
 
     private HttpResponse<String> preflight(String origin) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(uri("/api/staff/ping")).timeout(Duration.ofSeconds(10))
+        HttpRequest request = HttpRequest.newBuilder(uri("/api/mi-establecimiento/ping")).timeout(Duration.ofSeconds(10))
                 .method("OPTIONS", BodyPublishers.noBody())
                 .header("Origin", origin)
                 .header("Access-Control-Request-Method", "GET")

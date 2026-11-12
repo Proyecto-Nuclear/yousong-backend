@@ -15,24 +15,32 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/** Configuring establishments: create, read and update, with real security and PostgreSQL. */
+/**
+ * The owner configures the establishment of their account: create, read and update, with real security and
+ * PostgreSQL. No route takes an establishment id: the establishment is the one owned by the token subject.
+ */
 class EstablecimientoApiTest extends ApiIntegrationTest {
 
-    private static final String ADMIN = "/api/admin/establecimientos";
-    private static final String STAFF = "/api/staff/establecimientos";
+    private static final String MI = "/api/mi-establecimiento";
 
     private static String unico() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 
-    private HttpResponse<String> crear(String json) {
-        return post(ADMIN, adminToken(), json);
+    private HttpResponse<String> crear(String token, String json) {
+        return post(MI, token, json);
     }
 
+    /** Creates an establishment for a brand new account and returns that account's token. */
     private String crearOk(String nombre) {
-        HttpResponse<String> response = crear("{\"nombre\":\"" + nombre + "\"}");
+        String token = tokenSinEstablecimiento();
+        HttpResponse<String> response = crear(token, "{\"nombre\":\"" + nombre + "\"}");
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
-        return json(response).get("id").asString();
+        return token;
+    }
+
+    private String idDe(String token) {
+        return json(get(MI, token)).get("id").asString();
     }
 
     private static String code(HttpResponse<String> response) {
@@ -42,27 +50,30 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     // ---------- create ----------
 
     @Test
-    void administratorCreatesAnEstablishmentWithAGeneratedSlug() {
+    void anAccountCreatesItsEstablishmentWithAGeneratedSlugAndBecomesItsOwner() {
+        String sub = UUID.randomUUID().toString();
         String sufijo = unico();
 
-        HttpResponse<String> response = crear("{\"nombre\":\"Taberna Él Rincón " + sufijo + "\"}");
+        HttpResponse<String> response = crear(tokenDe(sub), "{\"nombre\":\"Taberna Él Rincón " + sufijo + "\"}");
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         JsonNode body = json(response);
-        assertThat(body.get("qrSlug").asString()).isEqualTo("taberna-el-rincon-" + sufijo);
+        assertThat(body.get("qrSlug").asString()).matches("taberna-el-rincon-" + sufijo + "-[a-z0-9]{6}");
         assertThat(body.get("zonaHoraria").asString()).isEqualTo("America/Bogota");
         assertThat(body.get("activo").asBoolean()).isTrue();
-        assertThat(response.headers().firstValue("Location"))
-                .contains("/api/staff/establecimientos/" + body.get("id").asString());
-        assertThat(jdbc.queryForObject("SELECT qr_slug FROM operacion.establecimiento WHERE id = ?::uuid",
-                String.class, body.get("id").asString())).isEqualTo("taberna-el-rincon-" + sufijo);
+        assertThat(body.has("propietarioSub")).isFalse();
+        assertThat(response.body()).doesNotContain(sub);
+        assertThat(response.headers().firstValue("Location")).contains(MI);
+        assertThat(jdbc.queryForObject("SELECT propietario_sub FROM operacion.establecimiento WHERE id = ?::uuid",
+                String.class, body.get("id").asString())).isEqualTo(sub);
     }
 
     @Test
     void anExplicitSlugAndZoneAreKept() {
         String slug = "mi-local-" + unico();
 
-        JsonNode body = json(crear("{\"nombre\":\"Mi Local\",\"qrSlug\":\"" + slug + "\",\"zonaHoraria\":\"America/Mexico_City\"}"));
+        JsonNode body = json(crear(tokenSinEstablecimiento(),
+                "{\"nombre\":\"Mi Local\",\"qrSlug\":\"" + slug + "\",\"zonaHoraria\":\"America/Mexico_City\"}"));
 
         assertThat(body.get("qrSlug").asString()).isEqualTo(slug);
         assertThat(body.get("zonaHoraria").asString()).isEqualTo("America/Mexico_City");
@@ -71,28 +82,53 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     @Test
     void anExplicitSlugThatIsTakenIsRejected() {
         String slug = "ocupado-" + unico();
-        assertThat(crear("{\"nombre\":\"Uno\",\"qrSlug\":\"" + slug + "\"}").statusCode()).isEqualTo(201);
+        assertThat(crear(tokenSinEstablecimiento(), "{\"nombre\":\"Uno\",\"qrSlug\":\"" + slug + "\"}").statusCode())
+                .isEqualTo(201);
 
-        HttpResponse<String> second = crear("{\"nombre\":\"Dos\",\"qrSlug\":\"" + slug + "\"}");
+        HttpResponse<String> second = crear(tokenSinEstablecimiento(), "{\"nombre\":\"Dos\",\"qrSlug\":\"" + slug + "\"}");
 
         assertThat(second.statusCode()).isEqualTo(409);
         assertThat(code(second)).isEqualTo("SLUG_TAKEN");
     }
 
     @Test
-    void aGeneratedSlugThatIsTakenGetsADisambiguatingSuffix() {
+    void establishmentsWithTheSameNameGetDistinctUrlSafeSlugs() {
         String nombre = "Bar Repetido " + unico();
 
-        JsonNode first = json(crear("{\"nombre\":\"" + nombre + "\"}"));
-        JsonNode second = json(crear("{\"nombre\":\"" + nombre + "\"}"));
+        String first = json(crear(tokenSinEstablecimiento(), "{\"nombre\":\"" + nombre + "\"}")).get("qrSlug").asString();
+        String second = json(crear(tokenSinEstablecimiento(), "{\"nombre\":\"" + nombre + "\"}")).get("qrSlug").asString();
 
-        assertThat(second.get("qrSlug").asString()).isNotEqualTo(first.get("qrSlug").asString());
-        assertThat(second.get("qrSlug").asString()).startsWith(first.get("qrSlug").asString());
+        assertThat(second).isNotEqualTo(first);
+        assertThat(List.of(first, second)).allSatisfy(slug -> assertThat(slug).matches("[a-z0-9-]{3,80}")
+                .startsWith(Slug.de(nombre) + "-"));
+    }
+
+    @Test
+    void aGeneratedSlugFitsTheColumnForVeryLongNames() {
+        JsonNode body = json(crear(tokenSinEstablecimiento(), "{\"nombre\":\"" + "x".repeat(120) + "\"}"));
+
+        assertThat(body.get("qrSlug").asString()).matches("[a-z0-9-]{3,80}");
+    }
+
+    @Test
+    void oneAccountCannotCreateASecondEstablishment() {
+        String sub = UUID.randomUUID().toString();
+        String token = tokenDe(sub);
+        assertThat(crear(token, "{\"nombre\":\"Primero " + unico() + "\"}").statusCode()).isEqualTo(201);
+        String id = idDe(token);
+
+        HttpResponse<String> second = crear(token, "{\"nombre\":\"Segundo\",\"qrSlug\":\"segundo-" + unico() + "\"}");
+
+        assertThat(second.statusCode()).isEqualTo(409);
+        assertThat(code(second)).isEqualTo("ESTABLISHMENT_ALREADY_EXISTS");
+        assertThat(idDe(token)).isEqualTo(id);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM operacion.establecimiento WHERE propietario_sub = ?",
+                Integer.class, sub)).isEqualTo(1);
     }
 
     @Test
     void anUnknownTimeZoneIsRejected() {
-        HttpResponse<String> response = crear("{\"nombre\":\"Zona\",\"zonaHoraria\":\"Mars/Olympus\"}");
+        HttpResponse<String> response = crear(tokenSinEstablecimiento(), "{\"nombre\":\"Zona\",\"zonaHoraria\":\"Mars/Olympus\"}");
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(code(response)).isEqualTo("INVALID_TIME_ZONE");
@@ -100,7 +136,7 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
 
     @Test
     void invalidFieldsAreReportedTogetherWithTheirNames() {
-        HttpResponse<String> response = crear("{\"nombre\":\"   \",\"qrSlug\":\"Mi Local!\"}");
+        HttpResponse<String> response = crear(tokenSinEstablecimiento(), "{\"nombre\":\"   \",\"qrSlug\":\"Mi Local!\"}");
 
         assertThat(response.statusCode()).isEqualTo(400);
         JsonNode body = json(response);
@@ -110,12 +146,13 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
 
     @Test
     void aTooLongNameIsRejected() {
-        assertThat(code(crear("{\"nombre\":\"" + "x".repeat(121) + "\"}"))).isEqualTo("VALIDATION_ERROR");
+        assertThat(code(crear(tokenSinEstablecimiento(), "{\"nombre\":\"" + "x".repeat(121) + "\"}")))
+                .isEqualTo("VALIDATION_ERROR");
     }
 
     @Test
     void aMalformedBodyIsABadRequestNotAServerError() {
-        HttpResponse<String> response = crear("{not json");
+        HttpResponse<String> response = crear(tokenSinEstablecimiento(), "{not json");
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(code(response)).isEqualTo("INVALID_BODY");
@@ -123,7 +160,7 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
 
     @Test
     void creatingRecordsAConfigurationEventInTheSameTransaction() {
-        String id = crearOk("Evento " + unico());
+        String id = idDe(crearOk("Evento " + unico()));
 
         assertThat(jdbc.queryForObject("""
                 SELECT ambito || '|' || agregado_tipo || '|' || agregado_version || '|' || (payload ->> 'entity_type')
@@ -133,11 +170,8 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void onlyAdministratorsCreateEstablishments() {
-        String nombre = "{\"nombre\":\"Sin permiso " + unico() + "\"}";
-
-        assertThat(post(ADMIN, operatorToken(), nombre).statusCode()).isEqualTo(403);
-        assertThat(post(ADMIN, null, nombre).statusCode()).isEqualTo(401);
+    void creatingRequiresAToken() {
+        assertThat(post(MI, null, "{\"nombre\":\"Anonimo\"}").statusCode()).isEqualTo(401);
     }
 
     // ---------- races ----------
@@ -169,10 +203,11 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void concurrentCreationsWithTheSameNameAllSucceedWithDistinctSlugs() throws Exception {
+    void concurrentCreationsWithTheSameNameByDifferentAccountsAllSucceedWithDistinctSlugs() throws Exception {
         String nombre = "Carrera " + unico();
 
-        List<HttpResponse<String>> respuestas = enParalelo(6, () -> crear("{\"nombre\":\"" + nombre + "\"}"));
+        List<HttpResponse<String>> respuestas = enParalelo(6,
+                () -> crear(tokenSinEstablecimiento(), "{\"nombre\":\"" + nombre + "\"}"));
 
         assertThat(respuestas).extracting(HttpResponse::statusCode).containsOnly(201);
         assertThat(respuestas).extracting(r -> json(r).get("qrSlug").asString()).doesNotHaveDuplicates();
@@ -183,7 +218,7 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
         String slug = "carrera-" + unico();
 
         List<HttpResponse<String>> respuestas = enParalelo(6,
-                () -> crear("{\"nombre\":\"Misma direccion\",\"qrSlug\":\"" + slug + "\"}"));
+                () -> crear(tokenSinEstablecimiento(), "{\"nombre\":\"Misma direccion\",\"qrSlug\":\"" + slug + "\"}"));
 
         assertThat(respuestas).extracting(HttpResponse::statusCode).filteredOn(c -> c == 201).hasSize(1);
         // Every loser is told the address is taken; none of them gets a server error.
@@ -196,48 +231,58 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    void concurrentCreationsByOneAccountCreateExactlyOne() throws Exception {
+        String sub = UUID.randomUUID().toString();
+        String token = tokenDe(sub);
+
+        List<HttpResponse<String>> respuestas = enParalelo(6,
+                () -> crear(token, "{\"nombre\":\"Doble clic " + unico() + "\"}"));
+
+        assertThat(respuestas).extracting(HttpResponse::statusCode).filteredOn(c -> c == 201).hasSize(1);
+        assertThat(respuestas).filteredOn(r -> r.statusCode() != 201)
+                .allSatisfy(r -> {
+                    assertThat(r.statusCode()).isEqualTo(409);
+                    assertThat(code(r)).isEqualTo("ESTABLISHMENT_ALREADY_EXISTS");
+                });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM operacion.establecimiento WHERE propietario_sub = ?",
+                Integer.class, sub)).isEqualTo(1);
+    }
+
     // ---------- read ----------
 
     @Test
-    void staffReadsOneEstablishmentAndTheList() {
-        String id = crearOk("Lectura " + unico());
+    void theOwnerReadsTheirEstablishment() {
+        Local local = establecimiento();
 
-        for (String token : java.util.List.of(operatorToken(), adminToken())) {
-            HttpResponse<String> one = get(STAFF + "/" + id, token);
-            assertThat(one.statusCode()).isEqualTo(200);
-            assertThat(json(one).get("id").asString()).isEqualTo(id);
+        HttpResponse<String> response = get(MI, local.token());
 
-            HttpResponse<String> all = get(STAFF, token);
-            assertThat(all.statusCode()).isEqualTo(200);
-            assertThat(all.body()).contains(id);
-        }
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json(response).get("id").asString()).isEqualTo(local.id().toString());
+        assertThat(json(response).get("qrSlug").asString()).isEqualTo(local.slug());
+        assertThat(response.body()).doesNotContain(local.propietario());
     }
 
     @Test
-    void anUnknownEstablishmentIsNotFoundAndABadIdIsABadRequest() {
-        HttpResponse<String> unknown = get(STAFF + "/" + UUID.randomUUID(), operatorToken());
-        assertThat(unknown.statusCode()).isEqualTo(404);
-        assertThat(code(unknown)).isEqualTo("ESTABLISHMENT_NOT_FOUND");
+    void anAccountWithoutAnEstablishmentIsToldSo() {
+        HttpResponse<String> response = get(MI, tokenSinEstablecimiento());
 
-        HttpResponse<String> malformed = get(STAFF + "/not-a-uuid", operatorToken());
-        assertThat(malformed.statusCode()).isEqualTo(400);
-        assertThat(code(malformed)).isEqualTo("INVALID_PARAMETER");
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(code(response)).isEqualTo("NO_ESTABLISHMENT");
     }
 
     @Test
     void readingRequiresAuthentication() {
-        assertThat(get(STAFF, null).statusCode()).isEqualTo(401);
+        assertThat(get(MI, null).statusCode()).isEqualTo(401);
     }
 
     // ---------- update ----------
 
     @Test
-    void administratorUpdatesNameZoneAndStatusButNeverTheSlug() {
-        String id = crearOk("Antes " + unico());
-        String slugAntes = jdbc.queryForObject("SELECT qr_slug FROM operacion.establecimiento WHERE id = ?::uuid",
-                String.class, id);
+    void theOwnerUpdatesNameZoneAndStatusButNeverTheSlug() {
+        Local local = establecimiento();
 
-        HttpResponse<String> response = patch(ADMIN + "/" + id, adminToken(),
+        HttpResponse<String> response = patch(MI, local.token(),
                 "{\"nombre\":\"Despues\",\"zonaHoraria\":\"Europe/Madrid\",\"activo\":false,\"qrSlug\":\"otro-slug\"}");
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
@@ -245,14 +290,14 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
         assertThat(body.get("nombre").asString()).isEqualTo("Despues");
         assertThat(body.get("zonaHoraria").asString()).isEqualTo("Europe/Madrid");
         assertThat(body.get("activo").asBoolean()).isFalse();
-        assertThat(body.get("qrSlug").asString()).isEqualTo(slugAntes); // printed QR codes must keep working
+        assertThat(body.get("qrSlug").asString()).isEqualTo(local.slug()); // printed QR codes must keep working
     }
 
     @Test
     void aPartialUpdateChangesOnlyWhatWasSent() {
-        String id = crearOk("Parcial " + unico());
+        String token = crearOk("Parcial " + unico());
 
-        JsonNode body = json(patch(ADMIN + "/" + id, adminToken(), "{\"nombre\":\"Solo nombre\"}"));
+        JsonNode body = json(patch(MI, token, "{\"nombre\":\"Solo nombre\"}"));
 
         assertThat(body.get("nombre").asString()).isEqualTo("Solo nombre");
         assertThat(body.get("zonaHoraria").asString()).isEqualTo("America/Bogota");
@@ -261,9 +306,7 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
 
     @Test
     void anEmptyUpdateIsRejected() {
-        String id = crearOk("Vacio " + unico());
-
-        HttpResponse<String> response = patch(ADMIN + "/" + id, adminToken(), "{}");
+        HttpResponse<String> response = patch(MI, establecimiento().token(), "{}");
 
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(code(response)).isEqualTo("EMPTY_UPDATE");
@@ -271,20 +314,19 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
 
     @Test
     void anInvalidUpdateChangesNothing() {
-        String id = crearOk("Intacto " + unico());
+        String token = crearOk("Intacto " + unico());
 
-        assertThat(patch(ADMIN + "/" + id, adminToken(), "{\"nombre\":\"Nuevo\",\"zonaHoraria\":\"Nope/Nope\"}")
-                .statusCode()).isEqualTo(400);
+        assertThat(patch(MI, token, "{\"nombre\":\"Nuevo\",\"zonaHoraria\":\"Nope/Nope\"}").statusCode()).isEqualTo(400);
 
-        assertThat(jdbc.queryForObject("SELECT nombre FROM operacion.establecimiento WHERE id = ?::uuid",
-                String.class, id)).startsWith("Intacto");
+        assertThat(json(get(MI, token)).get("nombre").asString()).startsWith("Intacto");
     }
 
     @Test
     void eachUpdateRecordsTheNextConfigurationEventVersion() {
-        String id = crearOk("Versiones " + unico());
-        assertThat(patch(ADMIN + "/" + id, adminToken(), "{\"nombre\":\"Dos\"}").statusCode()).isEqualTo(200);
-        assertThat(patch(ADMIN + "/" + id, adminToken(), "{\"zonaHoraria\":\"Europe/Madrid\"}").statusCode()).isEqualTo(200);
+        String token = crearOk("Versiones " + unico());
+        String id = idDe(token);
+        assertThat(patch(MI, token, "{\"nombre\":\"Dos\"}").statusCode()).isEqualTo(200);
+        assertThat(patch(MI, token, "{\"zonaHoraria\":\"Europe/Madrid\"}").statusCode()).isEqualTo(200);
 
         assertThat(jdbc.queryForList("""
                 SELECT agregado_version FROM integracion.evento_outbox
@@ -299,37 +341,37 @@ class EstablecimientoApiTest extends ApiIntegrationTest {
     @Test
     void anEstablishmentWithASessionInOperationCannotBeDeactivated() {
         Local local = localListoParaAbrir();
-        String sesion = json(post("/api/admin/establecimientos/" + local.id() + "/sesiones", adminToken())).get("id").asString();
+        assertThat(post(MI + "/sesiones", local.token()).statusCode()).isEqualTo(201);
 
-        HttpResponse<String> blocked = patch(ADMIN + "/" + local.id(), adminToken(), "{\"activo\":false}");
+        HttpResponse<String> blocked = patch(MI, local.token(), "{\"activo\":false}");
         assertThat(blocked.statusCode()).isEqualTo(409);
         assertThat(code(blocked)).isEqualTo("SESSION_IN_PROGRESS");
 
-        post("/api/admin/sesiones/" + sesion + "/cierre", adminToken());
-        assertThat(patch(ADMIN + "/" + local.id(), adminToken(), "{\"activo\":false}").statusCode()).isEqualTo(200);
+        assertThat(post(MI + "/sesion/cierre", local.token()).statusCode()).isEqualTo(200);
+        assertThat(patch(MI, local.token(), "{\"activo\":false}").statusCode()).isEqualTo(200);
     }
 
     @Test
     void anInactiveEstablishmentCannotOpenSessions() {
         Local local = localListoParaAbrir();
-        patch(ADMIN + "/" + local.id(), adminToken(), "{\"activo\":false}");
+        patch(MI, local.token(), "{\"activo\":false}");
 
-        HttpResponse<String> response = post("/api/admin/establecimientos/" + local.id() + "/sesiones", adminToken());
+        HttpResponse<String> response = post(MI + "/sesiones", local.token());
 
         assertThat(response.statusCode()).isEqualTo(409);
         assertThat(code(response)).isEqualTo("ESTABLISHMENT_INACTIVE");
     }
 
     @Test
-    void updatingAnUnknownEstablishmentIsNotFound() {
-        assertThat(patch(ADMIN + "/" + UUID.randomUUID(), adminToken(), "{\"nombre\":\"x\"}").statusCode()).isEqualTo(404);
+    void updatingWithoutAnEstablishmentIsNotFound() {
+        HttpResponse<String> response = patch(MI, tokenSinEstablecimiento(), "{\"nombre\":\"x\"}");
+
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(code(response)).isEqualTo("NO_ESTABLISHMENT");
     }
 
     @Test
-    void onlyAdministratorsUpdate() {
-        String id = crearOk("Permisos " + unico());
-
-        assertThat(patch(ADMIN + "/" + id, operatorToken(), "{\"nombre\":\"x\"}").statusCode()).isEqualTo(403);
-        assertThat(patch(ADMIN + "/" + id, null, "{\"nombre\":\"x\"}").statusCode()).isEqualTo(401);
+    void updatingRequiresAToken() {
+        assertThat(patch(MI, null, "{\"nombre\":\"x\"}").statusCode()).isEqualTo(401);
     }
 }

@@ -1,42 +1,42 @@
 package cue.edu.co.yousongbackend.repertorio;
 
+import cue.edu.co.yousongbackend.establecimiento.PropietarioActual;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Publishing and the history are for administrators; any staff member can read the current list. */
+/** The owner publishes and reads the default list of their own establishment (see {@link PropietarioActual}). */
 @RestController
 class ListaDefectoController {
 
+    private static final String LISTA = "/api/mi-establecimiento/lista-defecto";
+
     private final ListaDefectoService service;
+    private final PropietarioActual propietario;
 
-    ListaDefectoController(ListaDefectoService service) {
+    ListaDefectoController(ListaDefectoService service, PropietarioActual propietario) {
         this.service = service;
+        this.propietario = propietario;
     }
 
-    @PutMapping("/api/admin/establecimientos/{establecimientoId}/lista-defecto")
-    ResponseEntity<ListaDefectoResponse> publicar(@PathVariable UUID establecimientoId,
-                                                  @Valid @RequestBody PublicarListaDefectoRequest request) {
-        ListaDefectoResponse publicada = service.publicar(establecimientoId, request);
-        return ResponseEntity
-                .created(URI.create("/api/staff/establecimientos/" + establecimientoId + "/lista-defecto"))
-                .body(publicada);
+    @PutMapping(LISTA)
+    ResponseEntity<ListaDefectoResponse> publicar(@Valid @RequestBody PublicarListaDefectoRequest request) {
+        ListaDefectoResponse publicada = service.publicar(propietario.establecimientoId(), request);
+        return ResponseEntity.created(URI.create(LISTA)).body(publicada);
     }
 
-    @GetMapping("/api/staff/establecimientos/{establecimientoId}/lista-defecto")
-    ListaDefectoResponse actual(@PathVariable UUID establecimientoId) {
-        return service.actual(establecimientoId);
+    @GetMapping(LISTA)
+    ListaDefectoResponse actual() {
+        return service.actual(propietario.establecimientoId());
     }
 
-    @GetMapping("/api/admin/establecimientos/{establecimientoId}/listas-defecto")
-    List<ListaDefectoResumenResponse> historial(@PathVariable UUID establecimientoId) {
-        return service.historial(establecimientoId);
+    @GetMapping("/api/mi-establecimiento/listas-defecto")
+    List<ListaDefectoResumenResponse> historial() {
+        return service.historial(propietario.establecimientoId());
     }
 }

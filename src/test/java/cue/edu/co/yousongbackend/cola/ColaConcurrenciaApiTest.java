@@ -143,8 +143,8 @@ class ColaConcurrenciaApiTest extends ColaApiTestSupport {
             List<Future<HttpResponse<String>>> futuras = new ArrayList<>();
             Future<Integer> driver = pool.submit(() -> {
                 salida.await();
-                int inicio = siguiente(sesion, operatorToken()).statusCode();
-                int cierre = fin(sesion, "COMPLETADA", operatorToken()).statusCode();
+                int inicio = siguiente(local.token()).statusCode();
+                int cierre = fin("COMPLETADA", local.token()).statusCode();
                 return inicio * 1000 + cierre;
             });
             for (String token : tokens) {

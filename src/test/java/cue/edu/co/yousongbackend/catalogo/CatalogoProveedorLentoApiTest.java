@@ -25,7 +25,7 @@ import org.springframework.test.context.TestPropertySource;
 class CatalogoProveedorLentoApiTest extends YoutubeApiTest {
 
     private HttpResponse<String> buscar(String consulta) {
-        return get("/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), operatorToken());
+        return get("/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), propietarioToken());
     }
 
     /** Same shape as the service's cache key (lower-cased query, NUL, empty page token) and ConcurrentHashMap's spread. */

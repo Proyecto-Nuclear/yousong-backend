@@ -18,17 +18,9 @@ import tools.jackson.databind.JsonNode;
 /** The default list of an establishment: published as immutable versions, never edited in place. */
 class ListaDefectoApiTest extends ApiIntegrationTest {
 
-    private static String publicar(Local local) {
-        return "/api/admin/establecimientos/" + local.id() + "/lista-defecto";
-    }
-
-    private static String actual(Local local) {
-        return "/api/staff/establecimientos/" + local.id() + "/lista-defecto";
-    }
-
-    private static String historial(Local local) {
-        return "/api/admin/establecimientos/" + local.id() + "/listas-defecto";
-    }
+    private static final String LISTA = "/api/mi-establecimiento/lista-defecto";
+    private static final String HISTORIAL = "/api/mi-establecimiento/listas-defecto";
+    private static final String SESIONES = "/api/mi-establecimiento/sesiones";
 
     private static String cuerpo(String nombre, String politica, String... videoIds) {
         StringBuilder ids = new StringBuilder();
@@ -46,7 +38,7 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     }
 
     private HttpResponse<String> publicarComoAdmin(Local local, String body) {
-        return put(publicar(local), adminToken(), body);
+        return put(LISTA, local.token(), body);
     }
 
     private static String code(HttpResponse<String> response) {
@@ -56,7 +48,7 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     // ---------- publish ----------
 
     @Test
-    void administratorPublishesTheFirstVersionKeepingTheOrder() {
+    void theOwnerPublishesTheFirstVersionKeepingTheOrder() {
         Local local = establecimiento();
         String a = videoIdAleatorio();
         String b = videoIdAleatorio();
@@ -219,40 +211,38 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     void aSessionKeepsItsListWhileTheNextSessionUsesTheNewVersion() {
         Local local = establecimiento();
         JsonNode v1 = json(publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio())));
-        JsonNode sesion1 = json(post("/api/admin/establecimientos/" + local.id() + "/sesiones", adminToken()));
+        JsonNode sesion1 = json(post(SESIONES, local.token()));
         assertThat(sesion1.get("listaId").asString()).isEqualTo(v1.get("id").asString());
 
         JsonNode v2 = json(publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio())));
 
         assertThat(jdbc.queryForObject("SELECT lista_id FROM operacion.sesion WHERE id = ?::uuid", UUID.class,
                 sesion1.get("id").asString()).toString()).isEqualTo(v1.get("id").asString());
-        post("/api/admin/sesiones/" + sesion1.get("id").asString() + "/cierre", adminToken());
-        JsonNode sesion2 = json(post("/api/admin/establecimientos/" + local.id() + "/sesiones", adminToken()));
+        post("/api/mi-establecimiento/sesion/cierre", local.token());
+        JsonNode sesion2 = json(post(SESIONES, local.token()));
         assertThat(sesion2.get("listaId").asString()).isEqualTo(v2.get("id").asString());
     }
 
     // ---------- read ----------
 
     @Test
-    void staffReadsTheLatestVersionWithItsSongs() {
+    void theOwnerReadsTheLatestVersionWithItsSongs() {
         Local local = establecimiento();
         publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio()));
         String a = videoIdAleatorio();
         JsonNode v2 = json(publicarComoAdmin(local, cuerpo("General", "ALEATORIA", a)));
 
-        for (String token : List.of(operatorToken(), adminToken())) {
-            HttpResponse<String> response = get(actual(local), token);
-            assertThat(response.statusCode()).isEqualTo(200);
-            JsonNode body = json(response);
-            assertThat(body.get("id").asString()).isEqualTo(v2.get("id").asString());
-            assertThat(body.get("version").asInt()).isEqualTo(2);
-            assertThat(body.get("canciones").get(0).get("youtubeVideoId").asString()).isEqualTo(a);
-        }
+        HttpResponse<String> response = get(LISTA, local.token());
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode body = json(response);
+        assertThat(body.get("id").asString()).isEqualTo(v2.get("id").asString());
+        assertThat(body.get("version").asInt()).isEqualTo(2);
+        assertThat(body.get("canciones").get(0).get("youtubeVideoId").asString()).isEqualTo(a);
     }
 
     @Test
     void thereIsNoCurrentListBeforePublishingOne() {
-        HttpResponse<String> response = get(actual(establecimiento()), operatorToken());
+        HttpResponse<String> response = get(LISTA, establecimiento().token());
 
         assertThat(response.statusCode()).isEqualTo(404);
         assertThat(code(response)).isEqualTo("NO_DEFAULT_LIST");
@@ -264,7 +254,7 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
         publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio()));
         publicarComoAdmin(local, cuerpo("General", null, videoIdAleatorio(), videoIdAleatorio()));
 
-        JsonNode history = json(get(historial(local), adminToken()));
+        JsonNode history = json(get(HISTORIAL, local.token()));
 
         assertThat(history.size()).isEqualTo(2);
         assertThat(history.get(0).get("version").asInt()).isEqualTo(2);
@@ -333,14 +323,17 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void anUnknownEstablishmentIsNotFound() {
-        Local fantasma = new Local(UUID.randomUUID(), "nope");
+    void anAccountWithoutAnEstablishmentHasNoList() {
+        String token = tokenSinEstablecimiento();
 
-        assertThat(publicarComoAdmin(fantasma, cuerpo("General", null, videoIdAleatorio())).statusCode()).isEqualTo(404);
-        assertThat(get(actual(fantasma), operatorToken()).statusCode()).isEqualTo(404);
+        for (HttpResponse<String> response : List.of(put(LISTA, token, cuerpo("General", null, videoIdAleatorio())),
+                get(LISTA, token), get(HISTORIAL, token))) {
+            assertThat(response.statusCode()).isEqualTo(404);
+            assertThat(code(response)).isEqualTo("NO_ESTABLISHMENT");
+        }
     }
 
-    // ---------- events and permissions ----------
+    // ---------- events and authentication ----------
 
     @Test
     void publishingRecordsTheVersionedListEvent() {
@@ -356,14 +349,13 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     }
 
     @Test
-    void onlyAdministratorsPublishAndEveryoneMustAuthenticate() {
+    void everyListRouteRequiresAToken() {
         Local local = establecimiento();
         String body = cuerpo("General", null, videoIdAleatorio());
 
-        assertThat(put(publicar(local), operatorToken(), body).statusCode()).isEqualTo(403);
-        assertThat(put(publicar(local), null, body).statusCode()).isEqualTo(401);
-        assertThat(get(historial(local), operatorToken()).statusCode()).isEqualTo(403);
-        assertThat(get(actual(local), null).statusCode()).isEqualTo(401);
+        assertThat(put(LISTA, null, body).statusCode()).isEqualTo(401);
+        assertThat(get(HISTORIAL, null).statusCode()).isEqualTo(401);
+        assertThat(get(LISTA, null).statusCode()).isEqualTo(401);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM operacion.lista_defecto WHERE establecimiento_id = ?",
                 Integer.class, local.id())).isZero();
     }
@@ -371,21 +363,21 @@ class ListaDefectoApiTest extends ApiIntegrationTest {
     // ---------- the point of the module ----------
 
     @Test
-    void anEstablishmentCanBeConfiguredFromScratchAndThenOpenASession() {
+    void aNewAccountConfiguresItsEstablishmentFromScratchAndOpensASession() {
         String slug = "e2e-" + UUID.randomUUID().toString().substring(0, 8);
-        JsonNode local = json(post("/api/admin/establecimientos", adminToken(),
-                "{\"nombre\":\"Desde cero\",\"qrSlug\":\"" + slug + "\"}"));
-        String id = local.get("id").asString();
+        String token = tokenSinEstablecimiento();
+        assertThat(get("/api/mi-establecimiento", token).statusCode()).isEqualTo(404);
+        assertThat(post("/api/mi-establecimiento", token,
+                "{\"nombre\":\"Desde cero\",\"qrSlug\":\"" + slug + "\"}").statusCode()).isEqualTo(201);
 
-        HttpResponse<String> withoutList = post("/api/admin/establecimientos/" + id + "/sesiones", adminToken());
+        HttpResponse<String> withoutList = post(SESIONES, token);
         assertThat(code(withoutList)).isEqualTo("NO_DEFAULT_LIST");
 
-        assertThat(put("/api/admin/establecimientos/" + id + "/lista-defecto", adminToken(),
-                cuerpo(null, null, videoIdAleatorio())).statusCode()).isEqualTo(201);
+        assertThat(put(LISTA, token, cuerpo(null, null, videoIdAleatorio())).statusCode()).isEqualTo(201);
 
-        HttpResponse<String> opened = post("/api/admin/establecimientos/" + id + "/sesiones", adminToken());
+        HttpResponse<String> opened = post(SESIONES, token);
         assertThat(opened.statusCode()).as(opened.body()).isEqualTo(201);
-        assertThat(json(get("/api/admin/establecimientos/" + id + "/qr", adminToken())).get("url").asString())
+        assertThat(json(get("/api/mi-establecimiento/qr", token)).get("url").asString())
                 .isEqualTo(PUBLIC_BASE_URL + "/s/" + slug);
     }
 }

@@ -31,8 +31,8 @@ class CatalogoSugerenciasCircuitoApiTest extends ApiIntegrationTest {
         SUGERENCIAS.script(500, "boom");
 
         for (int i = 0; i < 4; i++) {
-            HttpResponse<String> response = get("/api/staff/catalogo/sugerencias?q=" + CatalogoSugerenciasApiTest.marca(),
-                    operatorToken());
+            HttpResponse<String> response = get("/api/mi-establecimiento/catalogo/sugerencias?q=" + CatalogoSugerenciasApiTest.marca(),
+                    propietarioToken());
             assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
             assertThat(json(response).get("sugerencias")).isEmpty();
         }

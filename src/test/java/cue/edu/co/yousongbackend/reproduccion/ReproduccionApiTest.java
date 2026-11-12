@@ -13,8 +13,8 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/** The minimal staff playback driver: take the head of the queue, then end it. */
-class ReproduccionStaffApiTest extends ColaApiTestSupport {
+/** The minimal owner playback driver: take the head of the queue of the owner's session, then end it. */
+class ReproduccionApiTest extends ColaApiTestSupport {
 
     @Test
     void nextTakesTheMostVotedRequestAndShowsItAsNowPlaying() {
@@ -25,7 +25,7 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         votar(unirse(local), popular);
         long antes = colaVersion(sesion);
 
-        HttpResponse<String> response = siguiente(sesion, operatorToken());
+        HttpResponse<String> response = siguiente(local.token());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         JsonNode body = json(response);
@@ -56,10 +56,10 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
         UUID solicitud = solicitada(unirse(local), videoGuardado());
-        siguiente(sesion, operatorToken());
+        siguiente(local.token());
         long antes = colaVersion(sesion);
 
-        HttpResponse<String> response = fin(sesion, "COMPLETADA", adminToken());
+        HttpResponse<String> response = fin("COMPLETADA", local.token());
 
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(json(response).get("resultado").asString()).isEqualTo("COMPLETADA");
@@ -82,10 +82,10 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         UUID saltada = solicitada(unirse(local), videoGuardado());
         UUID fallida = solicitada(unirse(local), videoGuardado());
 
-        siguiente(sesion, operatorToken());
-        assertThat(fin(sesion, "SALTADA", operatorToken()).statusCode()).isEqualTo(200);
-        siguiente(sesion, operatorToken());
-        assertThat(fin(sesion, "FALLIDA", operatorToken()).statusCode()).isEqualTo(200);
+        siguiente(local.token());
+        assertThat(fin("SALTADA", local.token()).statusCode()).isEqualTo(200);
+        siguiente(local.token());
+        assertThat(fin("FALLIDA", local.token()).statusCode()).isEqualTo(200);
 
         assertThat(jdbc.queryForObject("SELECT estado FROM operacion.solicitud WHERE id = ?", String.class, saltada))
                 .isEqualTo("SALTADA");
@@ -99,22 +99,22 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         UUID sesion = sesionDe(local);
         String video = videoGuardado();
         solicitada(unirse(local), video);
-        siguiente(sesion, operatorToken());
-        fin(sesion, "COMPLETADA", operatorToken());
+        siguiente(local.token());
+        fin("COMPLETADA", local.token());
 
         assertProblema(solicitar(unirse(local), video), 409, "SONG_RECENTLY_PLAYED");
     }
 
     @Test
-    void theStaffDriverCreatesAStationOnlyOnceAndReusesTheEnabledOne() {
+    void theDriverCreatesAStationOnlyOnceAndReusesTheEnabledOne() {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
         solicitada(unirse(local), videoGuardado());
         solicitada(unirse(local), videoGuardado());
 
-        siguiente(sesion, operatorToken());
-        fin(sesion, "COMPLETADA", operatorToken());
-        siguiente(sesion, operatorToken());
+        siguiente(local.token());
+        fin("COMPLETADA", local.token());
+        siguiente(local.token());
 
         assertThat(contar("SELECT count(*) FROM operacion.estacion WHERE sesion_id = ?", sesion)).isEqualTo(1);
         assertThat(contar("SELECT count(DISTINCT estacion_id) FROM operacion.reproduccion WHERE sesion_id = ?", sesion))
@@ -124,7 +124,7 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         UUID otraSesion = sesionDe(otro);
         UUID habilitada = estacionHabilitada(otro.id(), otraSesion);
         solicitada(unirse(otro), videoGuardado());
-        siguiente(otraSesion, operatorToken());
+        siguiente(otro.token());
         assertThat(jdbc.queryForObject("SELECT estacion_id FROM operacion.reproduccion WHERE sesion_id = ?", UUID.class,
                 otraSesion)).isEqualTo(habilitada);
     }
@@ -134,26 +134,27 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
 
-        assertProblema(siguiente(sesion, operatorToken()), 409, "QUEUE_EMPTY");
+        assertProblema(siguiente(local.token()), 409, "QUEUE_EMPTY");
         solicitada(unirse(local), videoGuardado());
         solicitada(unirse(local), videoGuardado());
-        siguiente(sesion, operatorToken());
+        siguiente(local.token());
         long version = colaVersion(sesion);
 
-        assertProblema(siguiente(sesion, operatorToken()), 409, "PLAYBACK_IN_PROGRESS");
+        assertProblema(siguiente(local.token()), 409, "PLAYBACK_IN_PROGRESS");
         assertThat(colaVersion(sesion)).isEqualTo(version);
     }
 
     @Test
-    void finishingWithoutAPlaybackOrForAnUnknownOrClosedSessionIsRejected() {
+    void finishingWithoutAPlaybackWithoutAnEstablishmentOrAfterTheCloseIsRejected() {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
 
-        assertProblema(fin(sesion, "COMPLETADA", operatorToken()), 409, "NO_ACTIVE_PLAYBACK");
-        assertProblema(fin(UUID.randomUUID(), "COMPLETADA", operatorToken()), 404, "SESSION_NOT_FOUND");
-        assertProblema(siguiente(UUID.randomUUID(), operatorToken()), 404, "SESSION_NOT_FOUND");
+        assertProblema(fin("COMPLETADA", local.token()), 409, "NO_ACTIVE_PLAYBACK");
+        assertProblema(fin("COMPLETADA", tokenSinEstablecimiento()), 404, "NO_ESTABLISHMENT");
+        assertProblema(siguiente(tokenSinEstablecimiento()), 404, "NO_ESTABLISHMENT");
         cerrarSesion(sesion);
-        assertProblema(siguiente(sesion, operatorToken()), 409, "SESSION_NOT_IN_OPERATION");
+        assertProblema(siguiente(local.token()), 404, "NO_ACTIVE_SESSION");
+        assertProblema(fin("COMPLETADA", local.token()), 404, "NO_ACTIVE_SESSION");
     }
 
     @Test
@@ -161,25 +162,25 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
         solicitada(unirse(local), videoGuardado());
-        siguiente(sesion, operatorToken());
+        siguiente(local.token());
 
-        assertProblema(fin(sesion, "INTERRUMPIDA_CIERRE", operatorToken()), 400, "INVALID_BODY");
-        assertProblema(post("/api/staff/sesiones/" + sesion + "/reproduccion/fin", operatorToken(), "{}"), 400,
+        assertProblema(fin("INTERRUMPIDA_CIERRE", local.token()), 400, "INVALID_BODY");
+        assertProblema(post("/api/mi-establecimiento/reproduccion/fin", local.token(), "{}"), 400,
                 "VALIDATION_ERROR");
         assertThat(contar("SELECT count(*) FROM operacion.reproduccion WHERE sesion_id = ? AND terminada_at IS NULL",
                 sesion)).isEqualTo(1);
     }
 
     @Test
-    void onlyStaffDrivesPlayback() {
+    void onlyTheOwnerDrivesPlayback() {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
         String participante = unirse(local);
         solicitada(participante, videoGuardado());
 
-        assertThat(siguiente(sesion, null).statusCode()).isEqualTo(401);
-        assertThat(siguiente(sesion, participante).statusCode()).isEqualTo(401);
-        assertThat(fin(sesion, "COMPLETADA", participante).statusCode()).isEqualTo(401);
+        assertThat(siguiente(null).statusCode()).isEqualTo(401);
+        assertThat(siguiente(participante).statusCode()).isEqualTo(401);
+        assertThat(fin("COMPLETADA", participante).statusCode()).isEqualTo(401);
         assertThat(contar("SELECT count(*) FROM operacion.reproduccion WHERE sesion_id = ?", sesion)).isZero();
     }
 
@@ -196,11 +197,11 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
             List<Future<HttpResponse<String>>> futuras = List.of(
                     pool.submit(() -> {
                         salida.await();
-                        return siguiente(sesion, operatorToken());
+                        return siguiente(local.token());
                     }),
                     pool.submit(() -> {
                         salida.await();
-                        return siguiente(sesion, adminToken());
+                        return siguiente(local.token());
                     }));
             salida.countDown();
             respuestas = List.of(futuras.get(0).get(), futuras.get(1).get());
@@ -219,7 +220,7 @@ class ReproduccionStaffApiTest extends ColaApiTestSupport {
         Local local = localAbierto();
         UUID sesion = sesionDe(local);
         solicitada(unirse(local), videoGuardado());
-        siguiente(sesion, operatorToken());
+        siguiente(local.token());
 
         cerrarSesion(sesion);
 

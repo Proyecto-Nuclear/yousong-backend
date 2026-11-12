@@ -63,8 +63,8 @@ class CatalogoSugerenciasApiTest extends YoutubeApiTest {
     }
 
     private HttpResponse<String> sugerir(String consulta) {
-        return get("/api/staff/catalogo/sugerencias?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8),
-                operatorToken());
+        return get("/api/mi-establecimiento/catalogo/sugerencias?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8),
+                propietarioToken());
     }
 
     private JsonNode items(HttpResponse<String> response) {
@@ -286,7 +286,7 @@ class CatalogoSugerenciasApiTest extends YoutubeApiTest {
             assertThat(response.statusCode()).as(consulta).isEqualTo(400);
             assertThat(json(response).get("code").asString()).isEqualTo("INVALID_QUERY");
         }
-        HttpResponse<String> sinConsulta = get("/api/staff/catalogo/sugerencias", operatorToken());
+        HttpResponse<String> sinConsulta = get("/api/mi-establecimiento/catalogo/sugerencias", propietarioToken());
         assertThat(json(sinConsulta).get("code").asString()).isEqualTo("INVALID_QUERY");
         assertThat(sugerir("a".repeat(100)).statusCode()).isEqualTo(200);
         assertThat(sugerir("ab").statusCode()).isEqualTo(200);
@@ -294,13 +294,15 @@ class CatalogoSugerenciasApiTest extends YoutubeApiTest {
     }
 
     @Test
-    void onlyStaffMayAskForSuggestions() {
-        String path = "/api/staff/catalogo/sugerencias?q=" + marca();
+    void onlyOwnersOfAnEstablishmentMayAskForSuggestions() {
+        String path = "/api/mi-establecimiento/catalogo/sugerencias?q=" + marca();
 
         assertThat(get(path, null).statusCode()).isEqualTo(401);
         assertThat(get(path, "pt_not-a-real-credential").statusCode()).isEqualTo(401);
-        assertThat(get(path, operatorToken()).statusCode()).isEqualTo(200);
-        assertThat(get(path, adminToken()).statusCode()).isEqualTo(200);
+        assertThat(get(path, propietarioToken()).statusCode()).isEqualTo(200);
+        HttpResponse<String> sinLocal = get(path, tokenSinEstablecimiento());
+        assertThat(sinLocal.statusCode()).isEqualTo(404);
+        assertThat(json(sinLocal).get("code").asString()).isEqualTo("NO_ESTABLISHMENT");
     }
 
     // ---------- privacy ----------

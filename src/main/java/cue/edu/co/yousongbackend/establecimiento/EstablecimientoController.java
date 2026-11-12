@@ -2,44 +2,43 @@ package cue.edu.co.yousongbackend.establecimiento;
 
 import jakarta.validation.Valid;
 import java.net.URI;
-import java.util.List;
-import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Writing is for administrators ({@code /api/admin/**}); any staff member can read ({@code /api/staff/**}). */
+/**
+ * The establishment of the calling account ({@code /api/mi-establecimiento}). Any valid access token may call
+ * it; which establishment is read or changed is decided by {@link PropietarioActual}, never by the client.
+ */
 @RestController
 class EstablecimientoController {
 
+    static final String MI_ESTABLECIMIENTO = "/api/mi-establecimiento";
+
     private final EstablecimientoConfiguracionService service;
+    private final PropietarioActual propietario;
 
-    EstablecimientoController(EstablecimientoConfiguracionService service) {
+    EstablecimientoController(EstablecimientoConfiguracionService service, PropietarioActual propietario) {
         this.service = service;
+        this.propietario = propietario;
     }
 
-    @PostMapping("/api/admin/establecimientos")
+    @PostMapping(MI_ESTABLECIMIENTO)
     ResponseEntity<EstablecimientoResponse> crear(@Valid @RequestBody CrearEstablecimientoRequest request) {
-        EstablecimientoResponse creado = service.crear(request);
-        return ResponseEntity.created(URI.create("/api/staff/establecimientos/" + creado.id())).body(creado);
+        EstablecimientoResponse creado = service.crear(propietario.sub(), request);
+        return ResponseEntity.created(URI.create(MI_ESTABLECIMIENTO)).body(creado);
     }
 
-    @PatchMapping("/api/admin/establecimientos/{id}")
-    EstablecimientoResponse actualizar(@PathVariable UUID id, @Valid @RequestBody ActualizarEstablecimientoRequest request) {
-        return service.actualizar(id, request);
+    @GetMapping(MI_ESTABLECIMIENTO)
+    EstablecimientoResponse obtener() {
+        return service.obtener(propietario.establecimientoId());
     }
 
-    @GetMapping("/api/staff/establecimientos")
-    List<EstablecimientoResponse> listar() {
-        return service.listar();
-    }
-
-    @GetMapping("/api/staff/establecimientos/{id}")
-    EstablecimientoResponse obtener(@PathVariable UUID id) {
-        return service.obtener(id);
+    @PatchMapping(MI_ESTABLECIMIENTO)
+    EstablecimientoResponse actualizar(@Valid @RequestBody ActualizarEstablecimientoRequest request) {
+        return service.actualizar(propietario.establecimientoId(), request);
     }
 }

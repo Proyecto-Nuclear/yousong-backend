@@ -1,22 +1,23 @@
 package cue.edu.co.yousongbackend.qr;
 
-import java.util.UUID;
+import cue.edu.co.yousongbackend.establecimiento.PropietarioActual;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The printable access QR of an establishment, for the admin portal. Administrators only (see {@code SecurityConfig}). */
+/** The printable access QR of the caller's own establishment, for the admin portal (see {@link PropietarioActual}). */
 @RestController
 class QrController {
 
     private final QrService service;
+    private final PropietarioActual propietario;
 
-    QrController(QrService service) {
+    QrController(QrService service, PropietarioActual propietario) {
         this.service = service;
+        this.propietario = propietario;
     }
 
-    @GetMapping("/api/admin/establecimientos/{establecimientoId}/qr")
-    QrResponse qr(@PathVariable UUID establecimientoId) {
-        return service.qrDelEstablecimiento(establecimientoId);
+    @GetMapping("/api/mi-establecimiento/qr")
+    QrResponse qr() {
+        return service.qrDelEstablecimiento(propietario.establecimientoId());
     }
 }

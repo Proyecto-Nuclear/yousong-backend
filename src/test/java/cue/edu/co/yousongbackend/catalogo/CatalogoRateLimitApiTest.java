@@ -18,7 +18,7 @@ import org.springframework.test.context.TestPropertySource;
 class CatalogoRateLimitApiTest extends YoutubeApiTest {
 
     private HttpResponse<String> buscar(String consulta) {
-        return get("/api/staff/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), operatorToken());
+        return get("/api/mi-establecimiento/catalogo/busqueda?q=" + URLEncoder.encode(consulta, StandardCharsets.UTF_8), propietarioToken());
     }
 
     @Test
