@@ -1,5 +1,6 @@
 package cue.edu.co.yousongbackend.establecimiento;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
 import org.springframework.http.ResponseEntity;
@@ -20,14 +21,20 @@ class EstablecimientoController {
 
     private final EstablecimientoConfiguracionService service;
     private final PropietarioActual propietario;
+    private final LimitadorCreaciones limitador;
 
-    EstablecimientoController(EstablecimientoConfiguracionService service, PropietarioActual propietario) {
+    EstablecimientoController(EstablecimientoConfiguracionService service, PropietarioActual propietario,
+                              LimitadorCreaciones limitador) {
         this.service = service;
         this.propietario = propietario;
+        this.limitador = limitador;
     }
 
+    /** Self-service creation, limited per client address before any row or lock ({@link LimitadorCreaciones}). */
     @PostMapping(MI_ESTABLECIMIENTO)
-    ResponseEntity<EstablecimientoResponse> crear(@Valid @RequestBody CrearEstablecimientoRequest request) {
+    ResponseEntity<EstablecimientoResponse> crear(@Valid @RequestBody CrearEstablecimientoRequest request,
+                                                  HttpServletRequest http) {
+        limitador.registrar(http.getRemoteAddr());
         EstablecimientoResponse creado = service.crear(propietario.sub(), request);
         return ResponseEntity.created(URI.create(MI_ESTABLECIMIENTO)).body(creado);
     }

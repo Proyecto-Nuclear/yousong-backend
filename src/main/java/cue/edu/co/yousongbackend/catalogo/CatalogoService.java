@@ -34,17 +34,12 @@ public class CatalogoService {
                 .build();
     }
 
-    /** A staff search, which may use the whole daily quota. */
-    public BusquedaResponse buscar(String consulta, String pagina) {
-        return buscar(consulta, pagina, OrigenBusqueda.STAFF);
-    }
-
     /**
      * A cache hit answers for free; only a miss reaches the provider and is charged to {@code origen}.
      *
      * @param consulta what to look for (2 to 100 characters once trimmed and with spaces collapsed)
      * @param pagina   the {@code siguientePagina} of the previous response, or null for the first page
-     * @param origen   staff, or the participant's establishment (bounded by its share and daily budget)
+     * @param origen   the participant's or the owner's establishment (bounded by its share and daily budget)
      */
     public BusquedaResponse buscar(String consulta, String pagina, OrigenBusqueda origen) {
         String texto = ConsultaCatalogo.normalizar(consulta);

@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  * <p>Single flight per video id, in this instance: callers asking for the same unknown video at the same time
  * share ONE lookup, so a crowd requesting a new song spends one videos.list unit instead of one per caller. The
  * first caller leads it, and the unit is charged to the leader's {@code origen} (its establishment's daily
- * budget, or the staff quota); the others wait for its outcome and get the same answer or the same error
+ * budget, participant or owner); the others wait for its outcome and get the same answer or the same error
  * (404 {@code SONG_NOT_FOUND}, 409 {@code SONG_UNAVAILABLE}, 503/429 catalog errors). Nothing is remembered
  * after a failure: the flight is removed when it ends, so the next caller performs a fresh lookup, and a failed
  * provider call is refunded once by {@link ProveedorYoutube}.
