@@ -21,6 +21,13 @@ public interface YoutubeClient {
      */
     List<VideoYoutube> obtener(Collection<String> videoIds);
 
+    /**
+     * videos.list with {@code chart=mostPopular} in the Music category (10): YouTube's most popular music videos
+     * of {@code region} (ISO 3166-1 alpha-2), at most {@code maximo} (1..50), in chart order, unavailable ones
+     * included (with {@code disponible=false}). One call, one quota unit.
+     */
+    List<VideoYoutube> masPopulares(String region, int maximo);
+
     /** Quota units one {@link #obtener} over {@code cantidad} ids costs: 1 per batch of up to 50. */
     static int lotes(int cantidad) {
         return (cantidad + LOTE_MAXIMO - 1) / LOTE_MAXIMO;

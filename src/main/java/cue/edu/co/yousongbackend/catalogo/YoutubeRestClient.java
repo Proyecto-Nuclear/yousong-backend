@@ -102,6 +102,22 @@ class YoutubeRestClient implements YoutubeClient {
         return ordenados;
     }
 
+    @Override
+    public List<VideoYoutube> masPopulares(String region, int maximo) {
+        JsonNode respuesta = llamar("/videos?key={key}&part=" + PARTES
+                        + "&chart=mostPopular&regionCode={region}&videoCategoryId=10&maxResults={maximo}",
+                Map.of("key", propiedades.apiKey(), "region", region, "maximo", Math.max(1, Math.min(50, maximo))));
+        List<VideoYoutube> videos = new ArrayList<>();
+        Set<String> vistos = new LinkedHashSet<>();
+        for (JsonNode item : respuesta.path("items")) {
+            VideoYoutube video = VideoYoutubeParser.desde(item, region);
+            if (video.videoId() != null && vistos.add(video.videoId())) {
+                videos.add(video);
+            }
+        }
+        return videos;
+    }
+
     private JsonNode llamar(String plantilla, Map<String, ?> variables) {
         try {
             String cuerpo = http.get().uri(plantilla, variables).retrieve()

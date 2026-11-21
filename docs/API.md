@@ -185,6 +185,7 @@ All counters are **in memory, per server instance**, fixed one-minute windows (r
 | Owner share of the YouTube quota | 25 % of 9000 units/day | all owners together | 503 `CATALOG_QUOTA_EXCEEDED` |
 | SSE streams | 500 | per establishment | 429 `TOO_MANY_STREAMS` |
 | SSE streams | 10 | per client address | 429 `TOO_MANY_STREAMS` |
+| Trends (`/api/public/tendencias`) | 30/min | per client address (`remoteAddr`) | 429 `RATE_LIMITED` "Too many requests from this device..." |
 
 None of these responses carries `Retry-After`. Back off at least until the next minute for `RATE_LIMITED` (the
 next hour for establishment creation); `SEARCH_BUDGET_EXHAUSTED` lasts until midnight `America/Los_Angeles` (the
@@ -629,6 +630,37 @@ Errors: `404 ESTABLISHMENT_NOT_FOUND`.
 
 Who: public. `text/event-stream`. See [Real time (SSE)](#4-real-time-sse).
 Errors before the stream starts: `404 ESTABLISHMENT_NOT_FOUND`, `429 TOO_MANY_STREAMS`, `503 SHUTTING_DOWN`.
+
+#### GET `/api/public/tendencias` - most popular music in Colombia
+
+Who: public (no credential). YouTube's most popular music videos in Colombia
+(`videos.list?chart=mostPopular&regionCode=CO&videoCategoryId=10&maxResults=25`).
+
+Response `200`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `region` | string | `"CO"` (`app.youtube.region-code`) |
+| `actualizadoAt` | instant | when YouTube was asked; up to 48 h old while the provider is failing |
+| `canciones[]` | array | up to 25 `CancionBusqueda` (with `genero`) in chart order; `[]` when nothing is playable |
+
+Derived:
+
+```json
+{"region":"CO","actualizadoAt":"<instant>","canciones":[{"videoId":"vidTusa0001","titulo":"Tusa","artista":"KAROLG","artistaVerificado":false,"canal":"KAROLGVEVO","duracionSegundos":201,"miniaturaUrl":"https://img.test/vidTusa0001/mqdefault.jpg","genero":"Reggaetón"}]}
+```
+
+- Only songs the player can play are listed (embeddable, public, processed, not live, not blocked in CO), so any
+  of them can be requested with its `videoId`. They are stored in the catalog when the chart is refreshed, so a
+  request does not need another lookup and they show up in known-song suggestions.
+- Cost: 1 YouTube unit per refresh, charged to the server's own reserve (never to the patrons' or owners' share
+  or any establishment budget). The chart is cached in memory for 6 h (`app.trends.cache-hours`); concurrent
+  requests share one refresh. When a refresh fails the previous chart is served unchanged (check `actualizadoAt`)
+  for up to 48 h (`app.trends.max-stale-hours`), and the provider is not asked again for a minute.
+- The establishment does not matter: it is the same answer for everyone. No identity is involved.
+
+Errors: `429 RATE_LIMITED` (30/min per client address, checked first), and only when there is no chart to serve:
+`503 CATALOG_NOT_CONFIGURED`, `503 CATALOG_UNAVAILABLE`, `503 CATALOG_QUOTA_EXCEEDED`.
 
 ### 3.3 Participant (`/api/participante/**`, `Authorization: Bearer pt_...`)
 
@@ -1155,7 +1187,7 @@ Events: `request.removed`, `queue.changed`; SSE push.
 | GET `/actuator/health` | public | `200 {"groups":["liveness","readiness"],"status":"UP"}` (captured, `application/vnd.spring-boot.actuator.v3+json`); `/actuator/health/liveness` and `/readiness` also public |
 | GET `/actuator/info` | public | Spring Boot info (not captured) |
 
-### 3.13 Route summary (41 routes)
+### 3.13 Route summary (42 routes)
 
 | # | Method | Path | Who |
 |---|--------|------|-----|
@@ -1200,6 +1232,7 @@ Events: `request.removed`, `queue.changed`; SSE push.
 | 39 | DELETE | `/api/mi-establecimiento/cola/{solicitudId}` | owner |
 | 40 | GET | `/actuator/health` | public |
 | 41 | GET | `/actuator/info` | public |
+| 42 | GET | `/api/public/tendencias` | public |
 
 ---
 
@@ -1619,10 +1652,10 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `PLAYBACK_IN_PROGRESS` | 409 | siguiente | Reconcile from `enReproduccion`. |
 | `QUEUE_EMPTY` | 409 | siguiente | Wait for requests or fix the default list. |
 | `NO_ACTIVE_PLAYBACK` | 409 | fin, saltar | Already ended: call `siguiente`. |
-| `RATE_LIMITED` | 429 | join, search, suggestions (participant and owner), solicitudes, votos; POST mi-establecimiento | Back off >= until the next minute (next hour for establishment creation). |
+| `RATE_LIMITED` | 429 | join, search, suggestions (participant and owner), solicitudes, votos; POST mi-establecimiento; tendencias | Back off >= until the next minute (next hour for establishment creation). |
 | `TOO_MANY_STREAMS` | 429 | SSE | Close other streams; retry after >= 30 s. |
 | `SEARCH_BUDGET_EXHAUSTED` | 429 | participant and owner search; solicitudes of a never-stored song; owner: lista-defecto with a never-stored song, bloqueos of a never-stored song | Disable search for today; keep suggestions and stored songs. |
-| `CATALOG_QUOTA_EXCEEDED` | 503 | searches; lookups of never-stored songs | Disable search until tomorrow (Pacific midnight). |
+| `CATALOG_QUOTA_EXCEEDED` | 503 | searches; lookups of never-stored songs; tendencias with no chart to serve | Disable search until tomorrow (Pacific midnight). |
 | `CATALOG_UNAVAILABLE` | 503 | same | Retry later with backoff. |
 | `CATALOG_NOT_CONFIGURED` | 503 | same | Server has no YouTube key (dev): use suggestions/stored songs. |
 | `JOIN_UNAVAILABLE` | 503 | join | Retry after ~1 s. |
@@ -1691,6 +1724,12 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 22. **QR endpoint works for an inactive establishment** and does not depend on any session.
 23. **`expiraAt` of a participant token is an upper bound only:** the token dies earlier when the session closes,
     when the device rejoins or when the participant leaves.
+24. **`genero` is often `null`.** YouTube does not tag every video with topics; a genre once stored is kept even
+    if YouTube later drops the topic, and the search result of a stored song may show a curated genre that differs
+    from YouTube's.
+25. **`/api/public/tendencias` can be stale and its cache is per instance:** after a provider failure it keeps
+    answering `200` with the old chart (up to 48 h, `actualizadoAt` unchanged), and two instances may show charts
+    fetched at different times.
 
 ---
 
@@ -1727,3 +1766,6 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.cola.sse-heartbeat-millis` | 15000 | Keep-alive interval |
 | `app.cola.sse-max-per-establishment` / `-per-address` | 500 / 10 | Stream caps |
 | `app.schedule.tick-seconds` / `min-open-seconds` | 30 / 60 | Scheduled close |
+| `app.trends.cache-hours` | 6 | How long the trends chart is served from memory (1 YouTube unit per refresh) |
+| `app.trends.max-stale-hours` | 48 | How long an old chart is served while refreshes fail (must be >= `cache-hours`) |
+| `app.trends.per-minute-per-address` | 30 | Trend reads/min per client address |

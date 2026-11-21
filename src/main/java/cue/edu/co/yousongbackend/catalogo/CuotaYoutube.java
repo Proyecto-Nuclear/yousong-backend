@@ -199,6 +199,16 @@ public class CuotaYoutube {
         return usadas;
     }
 
+    /** Units counted today in the participants' or the owners' bucket, or outside both (for tests and diagnostics). */
+    synchronized int usadasPor(OrigenBusqueda.Quien quien) {
+        rotar();
+        return switch (quien) {
+            case PARTICIPANTE -> participantes.usadas;
+            case PROPIETARIO -> propietarios.usadas;
+            case SISTEMA -> usadas - participantes.usadas - propietarios.usadas;
+        };
+    }
+
     /** The provider said the quota is gone: no more calls until the next reset. */
     public synchronized void agotar() {
         rotar();

@@ -124,6 +124,16 @@ public class ProveedorYoutube {
         }
     }
 
+    /**
+     * The most popular music videos of {@code region} (one videos.list call, 1 unit), for the system: counted like
+     * every system call ({@link OrigenBusqueda#STAFF}), so it is bounded by the daily limit only and never spends
+     * the participants' or the owners' share or any establishment budget.
+     */
+    public List<VideoYoutube> masPopulares(String region, int maximo) {
+        permitir();
+        return ejecutar(CuotaYoutube.COSTO_DETALLES, () -> cliente.masPopulares(region, maximo));
+    }
+
     private List<VideoYoutube> detalles(Collection<String> videoIds) {
         return ejecutar(CuotaYoutube.COSTO_DETALLES * YoutubeClient.lotes(videoIds.size()), () -> cliente.obtener(videoIds));
     }

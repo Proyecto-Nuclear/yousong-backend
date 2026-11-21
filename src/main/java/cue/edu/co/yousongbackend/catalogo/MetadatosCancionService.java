@@ -116,6 +116,18 @@ public class MetadatosCancionService {
         guardar(Map.of(video.videoId(), video));
     }
 
+    /**
+     * Registers every video that is new and stores what YouTube said about all of them, in one short transaction
+     * (rows in video id order). Only for videos the caller already knows are playable.
+     */
+    @Transactional
+    public void registrarTodos(Collection<VideoYoutube> videos) {
+        Map<String, VideoYoutube> porId = new LinkedHashMap<>();
+        videos.forEach(v -> porId.putIfAbsent(v.videoId(), v));
+        porId.keySet().stream().sorted().forEach(id -> canciones.registrarSiNoExiste(UUID.randomUUID(), id));
+        guardar(porId);
+    }
+
     /** Stores the fetched metadata. Rows are written in video id order, so concurrent writers cannot deadlock. */
     public void guardar(Map<String, VideoYoutube> videos) {
         Instant ahora = reloj.instant().truncatedTo(ChronoUnit.MICROS);
