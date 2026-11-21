@@ -186,6 +186,7 @@ All counters are **in memory, per server instance**, fixed one-minute windows (r
 | SSE streams | 500 | per establishment | 429 `TOO_MANY_STREAMS` |
 | SSE streams | 10 | per client address | 429 `TOO_MANY_STREAMS` |
 | Trends (`/api/public/tendencias`) | 30/min | per client address (`remoteAddr`) | 429 `RATE_LIMITED` "Too many requests from this device..." |
+| Featured songs (`/destacadas`) | 30/min | per client address (`remoteAddr`), own counter | 429 `RATE_LIMITED` "Too many requests from this device..." |
 
 None of these responses carries `Retry-After`. Back off at least until the next minute for `RATE_LIMITED` (the
 next hour for establishment creation); `SEARCH_BUDGET_EXHAUSTED` lasts until midnight `America/Los_Angeles` (the
@@ -661,6 +662,51 @@ Derived:
 
 Errors: `429 RATE_LIMITED` (30/min per client address, checked first), and only when there is no chart to serve:
 `503 CATALOG_NOT_CONFIGURED`, `503 CATALOG_UNAVAILABLE`, `503 CATALOG_QUOTA_EXCEEDED`.
+
+#### GET `/api/public/establecimientos/{qrSlug}/destacadas?dias=30` - featured songs of an establishment
+
+Who: public (no credential). What the establishment's patrons liked most, from the requests, votes and playbacks
+it already records.
+
+| Param | Required | Constraints | Notes |
+|-------|----------|-------------|-------|
+| `dias` | no | integer 1-365 | period: sessions opened in the last `dias` days; default 30 |
+
+Response `200`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `periodoDias` | int | the period applied |
+| `masVotadas[]` | array | up to 10 `{cancion, votos}`: every vote received by the song's counted requests in the period |
+| `masPedidas[]` | array | up to 10 `{cancion, veces}`: counted requests of the song in the period |
+| `masSonadas[]` | array | up to 10 `{cancion, reproducciones}`: playbacks in the period that started and did not fail (`FALLIDA`), requests and default list alike, the one playing now included |
+| `ultimasSonadas[]` | array | the last 10 playbacks that started, **ever** (ignores `dias`), newest first: `{cancion, sonoAt (instant), enCurso (boolean)}`; `enCurso` is true for the one playing now |
+
+`cancion` is a `CancionBusqueda` (with `genero`). Every list is `[]` when empty.
+
+- **Counted requests:** every request of the period in any state (waiting, playing, played, failed, not reached
+  before the close) except `BLOQUEADA` (removed by a content block) and requests the staff removed from the queue
+  (`DELETE /cola/{solicitudId}`: `SALTADA` without a playback). A request that played and was skipped counts.
+  Votes of requests that do not count do not count either.
+- **Order:** by the count, then by the most recent activity (latest request, vote or start), then by song id.
+- **Blocks:** songs the establishment blocks right now are left out of the three rankings (they are not promoted
+  publicly); `ultimasSonadas` is history and keeps them.
+- **No identities** anywhere: no participation, pseudonym, device, request or session id.
+- An inactive, paused or closed establishment still answers (the public status and queue do too).
+- Read in one consistent snapshot; nothing is cached.
+
+Derived:
+
+```json
+{"periodoDias":30,
+ "masVotadas":[{"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":"Pop"},"votos":12}],
+ "masPedidas":[{"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":"Pop"},"veces":5}],
+ "masSonadas":[{"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":"Pop"},"reproducciones":4}],
+ "ultimasSonadas":[{"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":"Pop"},"sonoAt":"<instant>","enCurso":true}]}
+```
+
+Errors: `429 RATE_LIMITED` (30/min per client address, checked first), `400 INVALID_PERIOD` (`dias` not an
+integer from 1 to 365: `0`, `366`, `abc`, empty), `404 ESTABLISHMENT_NOT_FOUND`.
 
 ### 3.3 Participant (`/api/participante/**`, `Authorization: Bearer pt_...`)
 
@@ -1187,7 +1233,7 @@ Events: `request.removed`, `queue.changed`; SSE push.
 | GET `/actuator/health` | public | `200 {"groups":["liveness","readiness"],"status":"UP"}` (captured, `application/vnd.spring-boot.actuator.v3+json`); `/actuator/health/liveness` and `/readiness` also public |
 | GET `/actuator/info` | public | Spring Boot info (not captured) |
 
-### 3.13 Route summary (42 routes)
+### 3.13 Route summary (43 routes)
 
 | # | Method | Path | Who |
 |---|--------|------|-----|
@@ -1233,6 +1279,7 @@ Events: `request.removed`, `queue.changed`; SSE push.
 | 40 | GET | `/actuator/health` | public |
 | 41 | GET | `/actuator/info` | public |
 | 42 | GET | `/api/public/tendencias` | public |
+| 43 | GET | `/api/public/establecimientos/{qrSlug}/destacadas` | public |
 
 ---
 
@@ -1593,6 +1640,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `INVALID_PARAMETER` | 400 | path/query ids | Fix the id. |
 | `INVALID_QUERY` | 400 | catalog search, suggestions | Require 2-100 characters. |
 | `INVALID_PAGE` | 400 | catalog search | Restart from the first page. |
+| `INVALID_PERIOD` | 400 | destacadas | Send `dias` from 1 to 365 (or omit it for 30). |
 | `INVALID_VIDEO_ID` | 400 | solicitudes, lista-defecto, bloqueos | Use a `videoId` from search/suggestions. |
 | `VIDEO_UNAVAILABLE` | 400 | PUT lista-defecto | Remove that video from the list. |
 | `DUPLICATE_SONG` | 400 | PUT lista-defecto | Remove the duplicate. |
@@ -1652,7 +1700,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `PLAYBACK_IN_PROGRESS` | 409 | siguiente | Reconcile from `enReproduccion`. |
 | `QUEUE_EMPTY` | 409 | siguiente | Wait for requests or fix the default list. |
 | `NO_ACTIVE_PLAYBACK` | 409 | fin, saltar | Already ended: call `siguiente`. |
-| `RATE_LIMITED` | 429 | join, search, suggestions (participant and owner), solicitudes, votos; POST mi-establecimiento; tendencias | Back off >= until the next minute (next hour for establishment creation). |
+| `RATE_LIMITED` | 429 | join, search, suggestions (participant and owner), solicitudes, votos; POST mi-establecimiento; tendencias, destacadas | Back off >= until the next minute (next hour for establishment creation). |
 | `TOO_MANY_STREAMS` | 429 | SSE | Close other streams; retry after >= 30 s. |
 | `SEARCH_BUDGET_EXHAUSTED` | 429 | participant and owner search; solicitudes of a never-stored song; owner: lista-defecto with a never-stored song, bloqueos of a never-stored song | Disable search for today; keep suggestions and stored songs. |
 | `CATALOG_QUOTA_EXCEEDED` | 503 | searches; lookups of never-stored songs; tendencias with no chart to serve | Disable search until tomorrow (Pacific midnight). |
@@ -1730,6 +1778,9 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 25. **`/api/public/tendencias` can be stale and its cache is per instance:** after a provider failure it keeps
     answering `200` with the old chart (up to 48 h, `actualizadoAt` unchanged), and two instances may show charts
     fetched at different times.
+26. **`destacadas` hides songs blocked now from its rankings but not from `ultimasSonadas`,** and lifting the block
+    brings them back with their full history; the period is by session opening, so a session opened 31 days ago
+    that is still running does not count for `dias=30`.
 
 ---
 
@@ -1769,3 +1820,4 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.trends.cache-hours` | 6 | How long the trends chart is served from memory (1 YouTube unit per refresh) |
 | `app.trends.max-stale-hours` | 48 | How long an old chart is served while refreshes fail (must be >= `cache-hours`) |
 | `app.trends.per-minute-per-address` | 30 | Trend reads/min per client address |
+| `app.destacadas.per-minute-per-address` | 30 | Featured-songs reads/min per client address |
