@@ -38,7 +38,7 @@ public class ColaConsultas {
     }
 
     private static final String CANCION = "c.youtube_video_id, c.titulo, c.artista_verificado, c.canal_titulo, "
-            + "c.duracion_proveedor_s, c.miniatura_url, c.duracion_operativa_s";
+            + "c.duracion_proveedor_s, c.miniatura_url, c.genero_propio, c.duracion_operativa_s";
 
     private final JdbcTemplate jdbc;
 
@@ -109,7 +109,7 @@ public class ColaConsultas {
     private static CancionCola cancion(ResultSet fila) throws SQLException {
         return CancionCola.de(fila.getString("youtube_video_id"), fila.getString("titulo"),
                 fila.getString("artista_verificado"), fila.getString("canal_titulo"),
-                entero(fila, "duracion_proveedor_s"), fila.getString("miniatura_url"));
+                entero(fila, "duracion_proveedor_s"), fila.getString("miniatura_url"), fila.getString("genero_propio"));
     }
 
     private static Integer entero(ResultSet fila, String columna) throws SQLException {

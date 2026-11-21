@@ -124,7 +124,8 @@ public class MetadatosCancionService {
             VideoYoutube v = videos.get(id);
             canciones.actualizarMetadatos(id, recortar(v.titulo(), MAX_TITULO), recortar(v.miniaturaUrl(), MAX_MINIATURA),
                     v.duracionSegundos() != null && v.duracionSegundos() > 0 ? v.duracionSegundos() : null,
-                    recortar(v.canal(), MAX_CANAL), Disponibilidad.DISPONIBLE, ahora, expira);
+                    recortar(v.canal(), MAX_CANAL), Disponibilidad.DISPONIBLE, ahora, expira,
+                    recortar(v.genero(), GeneroMusical.MAXIMO));
         });
     }
 

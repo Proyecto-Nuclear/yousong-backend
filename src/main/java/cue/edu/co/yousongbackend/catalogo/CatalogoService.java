@@ -63,18 +63,36 @@ public class CatalogoService {
     }
 
     private BusquedaResponse respuesta(PaginaVideos pagina) {
-        Map<String, String> verificados = new HashMap<>();
-        if (!pagina.videos().isEmpty()) {
-            canciones.findByYoutubeVideoIdIn(pagina.videos().stream().map(VideoYoutube::videoId).toList())
-                    .forEach(c -> verificados.put(c.getYoutubeVideoId(), c.getArtistaVerificado()));
+        return new BusquedaResponse(canciones(pagina.videos()), pagina.siguientePagina());
+    }
+
+    /**
+     * Provider videos as songs of the catalog, in the same order: what YouTube said, plus what only we know of
+     * the songs already stored. The artist is the verified one when the song has it; the genre is the live one
+     * from YouTube's topics, except that a stored genre of another source (chosen on purpose) wins, like it does
+     * when the metadata is written ({@link CancionRepository#actualizarMetadatos}).
+     */
+    public List<CancionBusquedaResponse> canciones(List<VideoYoutube> videos) {
+        Map<String, Cancion> guardadas = new HashMap<>();
+        if (!videos.isEmpty()) {
+            canciones.findByYoutubeVideoIdIn(videos.stream().map(VideoYoutube::videoId).toList())
+                    .forEach(c -> guardadas.put(c.getYoutubeVideoId(), c));
         }
-        List<CancionBusquedaResponse> resultados = pagina.videos().stream().map(video -> {
-            String verificado = verificados.get(video.videoId());
+        return videos.stream().map(video -> {
+            Cancion guardada = guardadas.get(video.videoId());
+            String verificado = guardada == null ? null : guardada.getArtistaVerificado();
             return new CancionBusquedaResponse(video.videoId(), video.titulo(),
                     ArtistaDesdeCanal.etiqueta(verificado, video.canal()), ArtistaDesdeCanal.verificado(verificado),
-                    video.canal(), video.duracionSegundos(), video.miniaturaUrl());
+                    video.canal(), video.duracionSegundos(), video.miniaturaUrl(), genero(video, guardada));
         }).toList();
-        return new BusquedaResponse(resultados, pagina.siguientePagina());
+    }
+
+    private static String genero(VideoYoutube video, Cancion guardada) {
+        if (guardada != null && guardada.getGeneroPropio() != null
+                && !GeneroMusical.FUENTE.equals(guardada.getFuenteClasificacion())) {
+            return guardada.getGeneroPropio();
+        }
+        return video.genero();
     }
 
     private static String token(String pagina) {

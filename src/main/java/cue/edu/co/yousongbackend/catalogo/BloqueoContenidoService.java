@@ -54,7 +54,7 @@ public class BloqueoContenidoService {
     private static final String AGREGADO = "BLOQUEO_CONTENIDO";
 
     private static final String SELECT = "SELECT b.id, b.motivo_codigo, b.desde_at, b.hasta_at, b.levantado_at, "
-            + "c.youtube_video_id, c.titulo, c.artista_verificado, c.canal_titulo, c.miniatura_url "
+            + "c.youtube_video_id, c.titulo, c.artista_verificado, c.canal_titulo, c.miniatura_url, c.genero_propio "
             + "FROM operacion.bloqueo_contenido b JOIN operacion.cancion c ON c.id = b.cancion_id ";
 
     private final CancionRepository canciones;
@@ -213,7 +213,7 @@ public class BloqueoContenidoService {
         boolean vigente = levantado == null && !desde.isAfter(ahora) && (hasta == null || hasta.isAfter(ahora));
         CancionBloqueada cancion = new CancionBloqueada(fila.getString("titulo"),
                 ArtistaDesdeCanal.etiqueta(fila.getString("artista_verificado"), fila.getString("canal_titulo")),
-                fila.getString("miniatura_url"));
+                fila.getString("miniatura_url"), fila.getString("genero_propio"));
         return new BloqueoResponse(fila.getObject("id", UUID.class), fila.getString("youtube_video_id"), cancion,
                 fila.getString("motivo_codigo"), desde, hasta, hasta == null, levantado, vigente, null, null);
     }

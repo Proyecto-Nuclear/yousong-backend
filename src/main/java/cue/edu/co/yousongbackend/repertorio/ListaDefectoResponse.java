@@ -16,7 +16,8 @@ public record ListaDefectoResponse(
     /**
      * A song of the list. Everything but the ids is null until the catalog has enriched the video.
      * {@code artista} is a display label (the verified artist, or derived from the channel);
-     * {@code artistaVerificado} is true only when the song has a verified artist.
+     * {@code artistaVerificado} is true only when the song has a verified artist; {@code genero} is the stored
+     * genre, null when unknown.
      */
     public record ItemListaResponse(
             int posicion,
@@ -27,6 +28,7 @@ public record ListaDefectoResponse(
             boolean artistaVerificado,
             String canal,
             Integer duracionSegundos,
-            String miniaturaUrl) {
+            String miniaturaUrl,
+            String genero) {
     }
 }

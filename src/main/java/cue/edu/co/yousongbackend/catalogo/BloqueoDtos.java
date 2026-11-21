@@ -27,8 +27,8 @@ public final class BloqueoDtos {
     public record CrearBloqueoRequest(String videoId, Integer duracionMinutos, Boolean permanente, String motivoCodigo) {
     }
 
-    /** The blocked song as the owner sees it. */
-    public record CancionBloqueada(String titulo, String artista, String miniaturaUrl) {
+    /** The blocked song as the owner sees it; {@code genero} is the stored genre, null when unknown. */
+    public record CancionBloqueada(String titulo, String artista, String miniaturaUrl, String genero) {
     }
 
     /**

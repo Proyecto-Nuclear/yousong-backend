@@ -378,9 +378,46 @@ integration/outbox events written and whether SSE subscribers get a new snapshot
 | `artistaVerificado` | boolean | true only when the song has a verified artist |
 | `duracionSegundos` | int \| null | provider duration |
 | `miniaturaUrl` | string \| null | thumbnail URL |
+| `genero` | string \| null | music genre as a Spanish label (`"Pop"`, `"Reggaetón"`, `"Salsa"`...); null when unknown, never `""` |
 
-**`CancionBusqueda`** (search result, suggestion song, list item use the same fields): `CancionCola` plus
-`canal` (string \| null, raw channel title).
+**`CancionBusqueda`** (search result, suggestion song, trend, ranking and list item use the same fields):
+`CancionCola` plus `canal` (string \| null, raw channel title).
+
+**Genre (`genero`).** Taken from YouTube's `topicDetails.topicCategories` (Wikipedia topic URLs) and mapped to one
+Spanish label; when a video has several topics the most specific wins (precedence top to bottom):
+
+| Label | YouTube topics (Wikipedia slugs) |
+|-------|----------------------------------|
+| `Reggaetón` | `Reggaeton` |
+| `Bachata` | `Bachata_(music)` |
+| `Merengue` | `Merengue_music` |
+| `Salsa` | `Salsa_music` |
+| `Vallenato` | `Vallenato` |
+| `Cumbia` | `Cumbia` |
+| `Reggae` | `Reggae` |
+| `Hip hop` | `Hip_hop_music` |
+| `Electrónica` | `Electronic_dance_music`, `Electronic_music`, `Dance_music` |
+| `Metal` | `Heavy_metal_music` |
+| `Rock` | `Rock_music` |
+| `R&B` | `Rhythm_and_blues` |
+| `Soul` | `Soul_music` |
+| `Jazz` | `Jazz` |
+| `Blues` | `Blues` |
+| `Clásica` | `Classical_music` |
+| `Country` | `Country_music` |
+| `Folk` | `Folk_music` |
+| `Cristiana` | `Christian_music` |
+| `Música latina` | `Latin_music`, `Music_of_Latin_America` |
+| `Pop` | `Pop_music` |
+| `Independiente` | `Independent_music` |
+| `Música asiática` | `Music_of_Asia` |
+
+The generic `Music` and `Entertainment` topics and anything else are ignored. Coverage is partial: YouTube does
+not tag every video, so expect many `null`s; treat the label as display text (the set may grow). Search results
+and trends carry the genre YouTube gives now; the queue, the default list, blocks and known-song suggestions carry
+the stored one (`cancion.genero_propio`, written with source `youtube_topic` whenever the song's metadata is
+fetched). A genre stored from another source (a curated one) is never overwritten and also wins in search
+results; a stored genre is never erased when YouTube stops tagging the video.
 
 **`Establecimiento`** (`EstablecimientoResponse`)
 
@@ -550,13 +587,13 @@ with `proximasDefecto` and `rotacionDefecto` as in the next capture):
   "enReproduccion": {
     "solicitudId": "<solicitudId-A>",
     "origen": "SOLICITUD",
-    "cancion": {"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},
+    "cancion": {"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg","genero":null},
     "iniciadaAt": "<instant>",
     "restanteSegundos": 200
   },
   "cola": [
-    {"solicitudId":"<solicitudId-B>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongB001","titulo":"Titulo vidSongB001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongB001/mqdefault.jpg"},"esperaEstimadaSegundos":200},
-    {"solicitudId":"<solicitudId-C>","posicion":2,"votos":1,"cancion":{"videoId":"vidSongC001","titulo":"Titulo vidSongC001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongC001/mqdefault.jpg"},"esperaEstimadaSegundos":400}
+    {"solicitudId":"<solicitudId-B>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongB001","titulo":"Titulo vidSongB001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongB001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":200},
+    {"solicitudId":"<solicitudId-C>","posicion":2,"votos":1,"cancion":{"videoId":"vidSongC001","titulo":"Titulo vidSongC001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongC001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":400}
   ]
 }
 ```
@@ -569,12 +606,12 @@ Captured (one request waiting, nothing playing, a `SECUENCIAL` list of three son
   "estado": "ABIERTO",
   "enReproduccion": null,
   "cola": [
-    {"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0}
+    {"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":0}
   ],
   "proximasDefecto": [
-    {"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg"},"esperaEstimadaSegundos":200},
-    {"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg"},"esperaEstimadaSegundos":427},
-    {"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg"},"esperaEstimadaSegundos":677}
+    {"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":200},
+    {"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":427},
+    {"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":677}
   ],
   "rotacionDefecto": "SECUENCIAL"
 }
@@ -627,7 +664,7 @@ Response `200`: `resultados[]` (`CancionBusqueda`, only playable videos), `sigui
 Captured:
 
 ```json
-{"resultados":[{"videoId":"vidBohemi01","titulo":"Bohemian Rhapsody","artista":"Queen","artistaVerificado":false,"canal":"Queen - Topic","duracionSegundos":355,"miniaturaUrl":"https://img.test/vidBohemi01/mqdefault.jpg"},{"videoId":"vidBohemi02","titulo":"Bohemian Rhapsody (Live Aid)","artista":"Queen Official","artistaVerificado":false,"canal":"Queen Official","duracionSegundos":362,"miniaturaUrl":"https://img.test/vidBohemi02/mqdefault.jpg"}],"siguientePagina":"CAMQAA"}
+{"resultados":[{"videoId":"vidBohemi01","titulo":"Bohemian Rhapsody","artista":"Queen","artistaVerificado":false,"canal":"Queen - Topic","duracionSegundos":355,"miniaturaUrl":"https://img.test/vidBohemi01/mqdefault.jpg","genero":null},{"videoId":"vidBohemi02","titulo":"Bohemian Rhapsody (Live Aid)","artista":"Queen Official","artistaVerificado":false,"canal":"Queen Official","duracionSegundos":362,"miniaturaUrl":"https://img.test/vidBohemi02/mqdefault.jpg","genero":null}],"siguientePagina":"CAMQAA"}
 ```
 
 Errors: `400 INVALID_QUERY`, `400 INVALID_PAGE`, `429 RATE_LIMITED` (6/min, checked before anything else, costs
@@ -655,7 +692,7 @@ Response `200`: `sugerencias[]`, at most 8: first up to 5 known songs (`tipo: "C
 requested directly with its `videoId`; a `BUSQUEDA` one should fill the search box. Captured:
 
 ```json
-{"sugerencias":[{"tipo":"CANCION","texto":"La camisa negra","cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg"}},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody queen"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody lyrics"}]}
+{"sugerencias":[{"tipo":"CANCION","texto":"La camisa negra","cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":null}},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody queen"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody lyrics"}]}
 ```
 
 Errors: `400 INVALID_QUERY`, `429 RATE_LIMITED` (60/min). The remote part silently disappears when the suggest
@@ -670,14 +707,14 @@ public queue and the public status report (system pause, maintenance and the wee
 Captured:
 
 ```json
-{"colaVersion":4,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":3,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0,"votado":true},{"solicitudId":"<solicitudId-B>","posicion":2,"votos":1,"cancion":{"videoId":"vidSongB001","titulo":"Titulo vidSongB001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongB001/mqdefault.jpg"},"esperaEstimadaSegundos":200,"votado":false}]}
+{"colaVersion":4,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":3,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":0,"votado":true},{"solicitudId":"<solicitudId-B>","posicion":2,"votos":1,"cancion":{"videoId":"vidSongB001","titulo":"Titulo vidSongB001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongB001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":200,"votado":false}]}
 ```
 
 That capture predates the preview fields. Captured with a default-list preview (the request was made by this
 participant; the preview items carry no `votado`):
 
 ```json
-{"colaVersion":1,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"esperaEstimadaSegundos":0,"votado":true}],"proximasDefecto":[{"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg"},"esperaEstimadaSegundos":200},{"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg"},"esperaEstimadaSegundos":427},{"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg"},"esperaEstimadaSegundos":677}],"rotacionDefecto":"SECUENCIAL"}
+{"colaVersion":1,"estado":"ABIERTO","enReproduccion":null,"cola":[{"solicitudId":"<solicitudId-A>","posicion":1,"votos":1,"cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":0,"votado":true}],"proximasDefecto":[{"posicion":2,"cancion":{"videoId":"vidDefect01","titulo":"Titulo vidDefect01","artista":"Canal","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidDefect01/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":200},{"posicion":3,"cancion":{"videoId":"vidDefect02","titulo":"Titulo vidDefect02","artista":"Canal","artistaVerificado":false,"duracionSegundos":250,"miniaturaUrl":"https://img.test/vidDefect02/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":427},{"posicion":4,"cancion":{"videoId":"vidDefect03","titulo":"Titulo vidDefect03","artista":"Canal","artistaVerificado":false,"duracionSegundos":252,"miniaturaUrl":"https://img.test/vidDefect03/mqdefault.jpg","genero":null},"esperaEstimadaSegundos":677}],"rotacionDefecto":"SECUENCIAL"}
 ```
 
 #### POST `/api/participante/solicitudes` - request a song (or vote for it)
@@ -865,12 +902,12 @@ Response `201`, `Location: /api/mi-establecimiento/lista-defecto`:
 | `version` | int | |
 | `politicaRotacion` | enum | |
 | `creadoAt` | instant | |
-| `canciones[]` | array | `posicion` (int), `cancionId` (uuid), `youtubeVideoId`, `titulo`, `artista`, `artistaVerificado`, `canal`, `duracionSegundos`, `miniaturaUrl` |
+| `canciones[]` | array | `posicion` (int), `cancionId` (uuid), `youtubeVideoId`, `titulo`, `artista`, `artistaVerificado`, `canal`, `duracionSegundos`, `miniaturaUrl`, `genero` (string \| null, see [genre](#31-shared-shapes)) |
 
 Captured:
 
 ```json
-{"id":"<listaId>","nombre":"Noche","version":1,"politicaRotacion":"SECUENCIAL","creadoAt":"<instant>","canciones":[{"posicion":1,"cancionId":"<cancionId-1>","youtubeVideoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg"},{"posicion":2,"cancionId":"<cancionId-2>","youtubeVideoId":"vidOjala001","titulo":"Ojalá que llueva café","artista":"JuanLuisGuerra","artistaVerificado":false,"canal":"JuanLuisGuerraVEVO","duracionSegundos":250,"miniaturaUrl":"https://img.test/vidOjala001/mqdefault.jpg"},{"posicion":3,"cancionId":"<cancionId-3>","youtubeVideoId":"vidVivir001","titulo":"Vivir mi vida","artista":"Marc Anthony","artistaVerificado":false,"canal":"Marc Anthony","duracionSegundos":252,"miniaturaUrl":"https://img.test/vidVivir001/mqdefault.jpg"}]}
+{"id":"<listaId>","nombre":"Noche","version":1,"politicaRotacion":"SECUENCIAL","creadoAt":"<instant>","canciones":[{"posicion":1,"cancionId":"<cancionId-1>","youtubeVideoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"canal":"Juanes - Topic","duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":null},{"posicion":2,"cancionId":"<cancionId-2>","youtubeVideoId":"vidOjala001","titulo":"Ojalá que llueva café","artista":"JuanLuisGuerra","artistaVerificado":false,"canal":"JuanLuisGuerraVEVO","duracionSegundos":250,"miniaturaUrl":"https://img.test/vidOjala001/mqdefault.jpg","genero":null},{"posicion":3,"cancionId":"<cancionId-3>","youtubeVideoId":"vidVivir001","titulo":"Vivir mi vida","artista":"Marc Anthony","artistaVerificado":false,"canal":"Marc Anthony","duracionSegundos":252,"miniaturaUrl":"https://img.test/vidVivir001/mqdefault.jpg","genero":null}]}
 ```
 
 Errors (captured): `400 VALIDATION_ERROR` (`canciones` empty/missing/>200: `must contain between 1 and 200
@@ -967,7 +1004,7 @@ anything else, costs no quota), uncached searches are charged to the owner's own
 quota (25 %), and a missing `q` is `400 INVALID_QUERY` (problem). Captured:
 
 ```json
-{"resultados":[{"videoId":"vidDespa001","titulo":"Despacito","artista":"LuisFonsi","artistaVerificado":false,"canal":"LuisFonsiVEVO","duracionSegundos":282,"miniaturaUrl":"https://img.test/vidDespa001/mqdefault.jpg"}],"siguientePagina":null}
+{"resultados":[{"videoId":"vidDespa001","titulo":"Despacito","artista":"LuisFonsi","artistaVerificado":false,"canal":"LuisFonsiVEVO","duracionSegundos":282,"miniaturaUrl":"https://img.test/vidDespa001/mqdefault.jpg","genero":null}],"siguientePagina":null}
 ```
 
 Errors: `400 INVALID_QUERY`, `400 INVALID_PAGE`, `404 NO_ESTABLISHMENT`, `429 RATE_LIMITED`, `429
@@ -980,7 +1017,7 @@ CATALOG_QUOTA_EXCEEDED` (daily quota or owner share used), `503 CATALOG_UNAVAILA
 Same as the participant suggestions, 60/min per establishment (`429 RATE_LIMITED`). Captured:
 
 ```json
-{"sugerencias":[{"tipo":"CANCION","texto":"Ojalá que llueva café","cancion":{"videoId":"vidOjala001","titulo":"Ojalá que llueva café","artista":"JuanLuisGuerra","artistaVerificado":false,"canal":"JuanLuisGuerraVEVO","duracionSegundos":250,"miniaturaUrl":"https://img.test/vidOjala001/mqdefault.jpg"}},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody queen"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody lyrics"}]}
+{"sugerencias":[{"tipo":"CANCION","texto":"Ojalá que llueva café","cancion":{"videoId":"vidOjala001","titulo":"Ojalá que llueva café","artista":"JuanLuisGuerra","artistaVerificado":false,"canal":"JuanLuisGuerraVEVO","duracionSegundos":250,"miniaturaUrl":"https://img.test/vidOjala001/mqdefault.jpg","genero":null}},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody queen"},{"tipo":"BUSQUEDA","texto":"bohemian rhapsody lyrics"}]}
 ```
 
 Errors: `400 INVALID_QUERY`, `404 NO_ESTABLISHMENT`, `429 RATE_LIMITED`.
@@ -1002,7 +1039,7 @@ Response `201` `Bloqueo`:
 |-------|------|-------|
 | `id` | uuid | |
 | `videoId` | string | |
-| `cancion` | object | `titulo`, `artista`, `miniaturaUrl` (nullable) |
+| `cancion` | object | `titulo`, `artista`, `miniaturaUrl`, `genero` (nullable) |
 | `motivoCodigo` | string | |
 | `desdeAt` | instant | |
 | `hastaAt` | instant \| null | null = permanent |
@@ -1015,7 +1052,7 @@ Response `201` `Bloqueo`:
 Captured:
 
 ```json
-{"id":"<bloqueoId>","videoId":"vidSongD001","cancion":{"titulo":"Titulo vidSongD001","artista":"Canal","miniaturaUrl":"https://img.test/vidSongD001/mqdefault.jpg"},"motivoCodigo":"INAPROPIADO","desdeAt":"<instant>","hastaAt":"<instant +120 min>","permanente":false,"levantadoAt":null,"vigente":true,"solicitudesBloqueadas":1,"reproduciendoActualmente":false}
+{"id":"<bloqueoId>","videoId":"vidSongD001","cancion":{"titulo":"Titulo vidSongD001","artista":"Canal","miniaturaUrl":"https://img.test/vidSongD001/mqdefault.jpg","genero":null},"motivoCodigo":"INAPROPIADO","desdeAt":"<instant>","hastaAt":"<instant +120 min>","permanente":false,"levantadoAt":null,"vigente":true,"solicitudesBloqueadas":1,"reproduciendoActualmente":false}
 ```
 
 Errors (captured): `400 INVALID_VIDEO_ID`, `400 INVALID_BLOCK_DURATION`, `400 INVALID_BLOCK_REASON`, `409
@@ -1055,11 +1092,11 @@ No body. Response `200` `InicioReproduccion`:
 Captured:
 
 ```json
-{"reproduccionId":"<reproduccionId-1>","origen":"SOLICITUD","solicitudId":"<solicitudId-A>","cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg"},"iniciadaAt":"<instant>","votos":3,"colaVersion":6}
+{"reproduccionId":"<reproduccionId-1>","origen":"SOLICITUD","solicitudId":"<solicitudId-A>","cancion":{"videoId":"vidSongA001","titulo":"Titulo vidSongA001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongA001/mqdefault.jpg","genero":null},"iniciadaAt":"<instant>","votos":3,"colaVersion":6}
 ```
 
 ```json
-{"reproduccionId":"<reproduccionId-4>","origen":"DEFECTO","solicitudId":null,"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg"},"iniciadaAt":"<instant>","votos":0,"colaVersion":15}
+{"reproduccionId":"<reproduccionId-4>","origen":"DEFECTO","solicitudId":null,"cancion":{"videoId":"vidCamisa01","titulo":"La camisa negra","artista":"Juanes","artistaVerificado":false,"duracionSegundos":227,"miniaturaUrl":"https://img.test/vidCamisa01/mqdefault.jpg","genero":null},"iniciadaAt":"<instant>","votos":0,"colaVersion":15}
 ```
 
 Errors (captured): `409 PLAYBACK_IN_PROGRESS`, `409 QUEUE_EMPTY`, `404 NO_ACTIVE_SESSION`.
@@ -1092,7 +1129,7 @@ Optional body `{"motivoCodigo": "..."}` (same values, default `SALTO_MANUAL`). E
 `siguiente` (`InicioReproduccion` \| null when nothing is left to play; the skip still succeeds). Captured:
 
 ```json
-{"fin":{"reproduccionId":"<reproduccionId-2>","solicitudId":"<solicitudId-B>","resultado":"SALTADA","motivoCodigo":"PROBLEMA_TECNICO","terminadaAt":"<instant>","colaVersion":9},"siguiente":{"reproduccionId":"<reproduccionId-3>","origen":"SOLICITUD","solicitudId":"<solicitudId-C>","cancion":{"videoId":"vidSongC001","titulo":"Titulo vidSongC001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongC001/mqdefault.jpg"},"iniciadaAt":"<instant>","votos":1,"colaVersion":9}}
+{"fin":{"reproduccionId":"<reproduccionId-2>","solicitudId":"<solicitudId-B>","resultado":"SALTADA","motivoCodigo":"PROBLEMA_TECNICO","terminadaAt":"<instant>","colaVersion":9},"siguiente":{"reproduccionId":"<reproduccionId-3>","origen":"SOLICITUD","solicitudId":"<solicitudId-C>","cancion":{"videoId":"vidSongC001","titulo":"Titulo vidSongC001","artista":"Canal","artistaVerificado":false,"duracionSegundos":200,"miniaturaUrl":"https://img.test/vidSongC001/mqdefault.jpg","genero":null},"iniciadaAt":"<instant>","votos":1,"colaVersion":9}}
 ```
 
 Errors (captured): `400 INVALID_SKIP_REASON`, `409 NO_ACTIVE_PLAYBACK`. Events: `playback.finished`,

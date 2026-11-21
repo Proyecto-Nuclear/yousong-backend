@@ -136,7 +136,7 @@ class CatalogoBusquedaApiTest extends YoutubeApiTest {
 
         LocalYoutubeServer.Recibida videos = YOUTUBE.last("/videos");
         assertThat(videos.param("key")).isEqualTo(CLAVE_PRUEBA);
-        assertThat(videos.param("part")).isEqualTo("snippet,contentDetails,status");
+        assertThat(videos.param("part")).isEqualTo("snippet,contentDetails,status,topicDetails");
         assertThat(videos.param("id")).isNotBlank();
     }
 
