@@ -35,7 +35,7 @@ import org.springframework.stereotype.Service;
  * and they are stored in {@code operacion.cancion} through the usual metadata write (genre included), so they can
  * be requested later without another lookup. A failure to store them is logged and does not fail the answer.
  *
- * <p>Abuse: at most {@code app.trends.per-minute-per-address} (30) reads per client address and minute, checked
+ * <p>Abuse: at most {@code app.trends.per-minute-per-address} (600) reads per client address and minute, checked
  * first (429 {@code RATE_LIMITED}). Everything is per instance and in memory.
  */
 @Slf4j
@@ -65,7 +65,7 @@ public class TendenciasService {
                       YoutubeProperties propiedades, Clock reloj,
                       @Value("${app.trends.cache-hours:6}") int horasCache,
                       @Value("${app.trends.max-stale-hours:48}") int horasViejas,
-                      @Value("${app.trends.per-minute-per-address:30}") int porMinuto) {
+                      @Value("${app.trends.per-minute-per-address:600}") int porMinuto) {
         if (horasCache <= 0) {
             throw new IllegalStateException("app.trends.cache-hours must be positive");
         }

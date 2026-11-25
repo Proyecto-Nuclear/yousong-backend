@@ -1819,5 +1819,5 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.schedule.tick-seconds` / `min-open-seconds` | 30 / 60 | Scheduled close |
 | `app.trends.cache-hours` | 6 | How long the trends chart is served from memory (1 YouTube unit per refresh) |
 | `app.trends.max-stale-hours` | 48 | How long an old chart is served while refreshes fail (must be >= `cache-hours`) |
-| `app.trends.per-minute-per-address` | 30 | Trend reads/min per client address |
-| `app.destacadas.per-minute-per-address` | 30 | Featured-songs reads/min per client address |
+| `app.trends.per-minute-per-address` | 600 | Trend reads/min per client address |
+| `app.destacadas.per-minute-per-address` | 600 | Featured-songs reads/min per client address |

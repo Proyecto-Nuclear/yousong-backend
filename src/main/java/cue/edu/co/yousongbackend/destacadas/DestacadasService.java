@@ -57,7 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
  * its patrons, and the other public reads (status, queue) answer for it too.
  *
  * <p>Everything is read in one read-only REPEATABLE READ transaction, so the four lists are one snapshot. At most
- * {@code app.destacadas.per-minute-per-address} (30) reads per client address and minute, checked first.
+ * {@code app.destacadas.per-minute-per-address} (600) reads per client address and minute, checked first.
  */
 @Service
 public class DestacadasService {
@@ -88,7 +88,7 @@ public class DestacadasService {
     private final LimitadorPorDireccion limitador;
 
     DestacadasService(JdbcTemplate jdbc, EstablecimientoService establecimientos, BloqueosVigentes bloqueos,
-                      Clock reloj, @Value("${app.destacadas.per-minute-per-address:30}") int porMinuto) {
+                      Clock reloj, @Value("${app.destacadas.per-minute-per-address:600}") int porMinuto) {
         this.jdbc = jdbc;
         this.establecimientos = establecimientos;
         this.bloqueos = bloqueos;
