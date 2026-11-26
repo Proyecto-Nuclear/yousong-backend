@@ -1231,14 +1231,119 @@ Errors (captured): `400 INVALID_PARAMETER`, `404 REQUEST_NOT_FOUND` (unknown or 
 `409 REQUEST_NOT_ACTIVE` (playing or finished: skip the playing one instead).
 Events: `request.removed`, `queue.changed`; SSE push.
 
-### 3.12 Health
+### 3.12 Owner: analytics
+
+Two reads for the "Analítica" dashboard of the caller's own establishment (the token `sub` decides it; no route
+takes an establishment id). The published history comes only from `analitica.*`, which the analytics pipeline
+publishes every 5 minutes and after each close; the session of the moment is computed live from the operational
+tables with the same definitions, so the client can poll it (every 10 s while a session is open) and its charts move
+during the session. Each call is one consistent snapshot. **No identities** anywhere: no participation, pseudonym,
+device, request or vote id (session ids only).
+
+Shared shape `CeldaGenero` (genres per hour of the night):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `genero` | string | the song's own genre; `"Sin género"` when it has none |
+| `hora` | int 0-23 | local hour of the establishment time zone |
+| `porcentaje` | number \| null | share of **that hour's** requests that asked for this genre, `100 * genre / hour total`, one decimal (half up); `null` when suppressed |
+| `suprimida` | boolean | true when the cell's requests come from fewer than **5 distinct participants**; its requests still count in the hour's total |
+
+Cells come by hour in **night order** (a night that crosses midnight lists 22, 23, 0, 1), then by genre name.
+
+#### GET `/api/mi-establecimiento/analitica?jornadas=8` - published history
+
+| Param | Required | Constraints | Notes |
+|-------|----------|-------------|-------|
+| `jornadas` | no | integer 1-30 | how many of the latest **published** sessions; default 8 |
+
+Response `200`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `publicacion` | object \| null | `{version, publicadaAt, corteEventosAt}` of the newest publication among the sessions; `null` when none is published |
+| `jornadas[]` | array | `{sesionId, fechaOperativa}`, **oldest first**, by operating date; only sessions with a publication |
+| `participacion[]` | array | `{sesionId, ingresaron, activas}` per session (same order): participations, and those that requested or voted at least once |
+| `canales` | object | `{"WEB": n, "ANDROID": n}` participations of those sessions per join channel; both keys always present |
+| `ranking[]` | array | up to 8 `{cancion, votos, completadas}`, most voted first: votes of the song in those sessions (the requester's initial vote counts once) and its playbacks with result `COMPLETADA` (requests and default list); ties by more completions, then by song id |
+| `generosPorHora[]` | array | `{sesionId, fechaOperativa, diaSemana, celdas: CeldaGenero[]}` per session (same order); `diaSemana` is the ISO day of `fechaOperativa` (Monday 1 ... Sunday 7), not of the calendar date of each hour |
+
+`cancion` is a `CancionBusqueda` read from the current catalog (the analytic model keeps no titles). An establishment
+with nothing published gets `publicacion: null`, empty arrays and both channels at 0.
+
+```json
+{"publicacion":{"version":12,"publicadaAt":"2026-11-22T04:45:00Z","corteEventosAt":"2026-11-22T04:44:00Z"},
+ "jornadas":[{"sesionId":"<sesionId>","fechaOperativa":"2026-11-21"}],
+ "participacion":[{"sesionId":"<sesionId>","ingresaron":34,"activas":27}],
+ "canales":{"WEB":197,"ANDROID":88},
+ "ranking":[{"cancion":{"videoId":"vidVivir001","titulo":"Vivir mi vida","artista":"Marc Anthony","artistaVerificado":true,"canal":"Marc Anthony - Topic","duracionSegundos":251,"miniaturaUrl":"https://img.test/vidVivir001/mqdefault.jpg","genero":"Salsa"},"votos":61,"completadas":8}],
+ "generosPorHora":[{"sesionId":"<sesionId>","fechaOperativa":"2026-11-21","diaSemana":6,
+   "celdas":[{"genero":"Salsa","hora":20,"porcentaje":30.0,"suprimida":false},{"genero":"Reggaetón","hora":20,"porcentaje":null,"suprimida":true}]}]}
+```
+
+Errors: `400 INVALID_PERIOD` (`jornadas` not an integer from 1 to 30: `0`, `31`, `abc`, empty), `401`,
+`404 NO_ESTABLISHMENT`.
+
+#### GET `/api/mi-establecimiento/analitica/jornada[?sesionId=]` - one session, live
+
+| Param | Required | Constraints | Notes |
+|-------|----------|-------------|-------|
+| `sesionId` | no | uuid of one of the caller's sessions | default: the session in operation, else the latest closed one |
+
+Response `200`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `sesion` | object \| null | `{id, fechaOperativa, estado}` (`ABIERTA`, `PAUSADA`, `CERRANDO`, `CERRADA`); `null` when the establishment never had a session |
+| `enVivo` | boolean | true while the session is in operation (not `CERRADA`) |
+| `corteAt` | instant | when the figures were read |
+| `participacion` | object | `{ingresaron, activas}`: participations, and those that requested or voted |
+| `canales` | object | `{"WEB": n, "ANDROID": n}`: channel of the join (first consent record), else of the device; a participation with neither counts in none |
+| `porHora[]` | array | `{hora, solicitudes, votos}`: requests by creation and votes by acceptance (initial votes included) per local hour, night order, every hour from the first to the last active one (gaps at 0) |
+| `embudo` | object | `{creadas, iniciadas, completadas}`: requests; started = one of its playbacks reached PLAYING; completed = state `ATENDIDA` with a `COMPLETADA` playback |
+| `estados` | object | requests per state, all eight keys always present: `PENDIENTE`, `RESERVADA`, `REPRODUCIENDO`, `ATENDIDA`, `SALTADA`, `FALLIDA`, `BLOQUEADA`, `NO_ATENDIDA_CIERRE` |
+| `espera` | object | see below |
+| `reproducciones[]` | array | always `[SOLICITUD, DEFECTO]`: `{origen, completadas, saltadas, fallidas, interrumpidas, enCurso}` playback **attempts** by result (`interrumpidas` = `INTERRUMPIDA_CIERRE`; `enCurso` = the open attempt); a retried failure is several attempts |
+| `generosPorHora[]` | array | `CeldaGenero` of this session |
+
+`espera` (real wait = first start minus creation, **only started requests**):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `medianaS`, `p95S` | int \| null | seconds; continuous percentiles (linear interpolation between ranks, like `percentile_cont`), rounded to whole seconds; `null` with no started request |
+| `iniciadas` | int | started requests |
+| `tramos[]` | array | six bins `{desdeMin, hastaMin, total}`: `[0,5)`, `[5,10)`, `[10,15)`, `[15,20)`, `[20,25)` and `{25, null}`; a wait of exactly 300 s is in `[5,10)` |
+| `pendientes` | int | requests that never started and are waiting or were left waiting at the close (`PENDIENTE`, `RESERVADA`, `NO_ATENDIDA_CIERRE`); they have no wait, not a zero wait |
+| `antiguedadMedianaPendientesS` | int \| null | median age of those, measured to when they ended, else to the close, else to now |
+
+With `sesion: null` every count is 0, `medianaS`/`p95S`/`antiguedadMedianaPendientesS` are `null` and every array is
+empty (`tramos` included) except `reproducciones`, which still holds both origins at 0.
+
+```json
+{"sesion":{"id":"<sesionId>","fechaOperativa":"2026-11-21","estado":"ABIERTA"},"enVivo":true,"corteAt":"<instant>",
+ "participacion":{"ingresaron":34,"activas":27},"canales":{"WEB":24,"ANDROID":10},
+ "porHora":[{"hora":23,"solicitudes":11,"votos":55},{"hora":0,"solicitudes":7,"votos":28}],
+ "embudo":{"creadas":41,"iniciadas":29,"completadas":26},
+ "estados":{"PENDIENTE":0,"RESERVADA":0,"REPRODUCIENDO":0,"ATENDIDA":26,"SALTADA":3,"FALLIDA":2,"BLOQUEADA":1,"NO_ATENDIDA_CIERRE":9},
+ "espera":{"medianaS":540,"p95S":1440,"iniciadas":29,
+   "tramos":[{"desdeMin":0,"hastaMin":5,"total":8},{"desdeMin":5,"hastaMin":10,"total":9},{"desdeMin":10,"hastaMin":15,"total":5},{"desdeMin":15,"hastaMin":20,"total":3},{"desdeMin":20,"hastaMin":25,"total":3},{"desdeMin":25,"hastaMin":null,"total":1}],
+   "pendientes":9,"antiguedadMedianaPendientesS":1260},
+ "reproducciones":[{"origen":"SOLICITUD","completadas":26,"saltadas":3,"fallidas":4,"interrumpidas":0,"enCurso":0},
+                   {"origen":"DEFECTO","completadas":5,"saltadas":0,"fallidas":0,"interrumpidas":1,"enCurso":0}],
+ "generosPorHora":[{"genero":"Salsa","hora":23,"porcentaje":26.0,"suprimida":false}]}
+```
+
+Errors: `401`, `404 NO_ESTABLISHMENT`, `404 SESSION_NOT_FOUND` (`sesionId` unknown, malformed or another
+establishment's).
+
+### 3.13 Health
 
 | Route | Who | Response |
 |-------|-----|----------|
 | GET `/actuator/health` | public | `200 {"groups":["liveness","readiness"],"status":"UP"}` (captured, `application/vnd.spring-boot.actuator.v3+json`); `/actuator/health/liveness` and `/readiness` also public |
 | GET `/actuator/info` | public | Spring Boot info (not captured) |
 
-### 3.13 Route summary (43 routes)
+### 3.14 Route summary (45 routes)
 
 | # | Method | Path | Who |
 |---|--------|------|-----|
@@ -1285,6 +1390,8 @@ Events: `request.removed`, `queue.changed`; SSE push.
 | 41 | GET | `/actuator/info` | public |
 | 42 | GET | `/api/public/tendencias` | public |
 | 43 | GET | `/api/public/establecimientos/{qrSlug}/destacadas` | public |
+| 44 | GET | `/api/mi-establecimiento/analitica` | owner |
+| 45 | GET | `/api/mi-establecimiento/analitica/jornada` | owner |
 
 ---
 
@@ -1645,7 +1752,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `INVALID_PARAMETER` | 400 | path/query ids | Fix the id. |
 | `INVALID_QUERY` | 400 | catalog search, suggestions | Require 2-100 characters. |
 | `INVALID_PAGE` | 400 | catalog search | Restart from the first page. |
-| `INVALID_PERIOD` | 400 | destacadas | Send `dias` from 1 to 365 (or omit it for 30). |
+| `INVALID_PERIOD` | 400 | destacadas, analitica | Send `dias` from 1 to 365 (or omit it for 30); `jornadas` from 1 to 30 (or omit it for 8). |
 | `INVALID_VIDEO_ID` | 400 | solicitudes, lista-defecto, bloqueos | Use a `videoId` from search/suggestions. |
 | `VIDEO_UNAVAILABLE` | 400 | PUT lista-defecto | Remove that video from the list. |
 | `DUPLICATE_SONG` | 400 | PUT lista-defecto | Remove the duplicate. |
@@ -1673,7 +1780,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `REQUEST_NOT_FOUND` | 404 | votos, DELETE cola | Refetch the queue. |
 | `SONG_NOT_FOUND` | 404 | solicitudes, bloqueos | Pick another song. |
 | `BLOCK_NOT_FOUND` | 404 | DELETE bloqueos | Refetch blocks. |
-| `SESSION_NOT_FOUND` | 404 | playback (race, practically unreachable) | Refetch the session. |
+| `SESSION_NOT_FOUND` | 404 | playback (race, practically unreachable); analitica/jornada (`sesionId` not one of yours) | Refetch the session; drop `sesionId` to get the default one. |
 | `POLICY_VERSION_MISMATCH` | 409 | join | Refetch the policy, ask consent again. |
 | `ESTABLISHMENT_INACTIVE` | 409 | join, POST sesiones | Show "closed". |
 | `ESTABLISHMENT_PAUSED` | 409 | join, solicitudes, votos, POST sesiones | Show "paused", retry later. |

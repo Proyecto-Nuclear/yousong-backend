@@ -1,0 +1,29 @@
+# YouSong analytics pipeline. Configuration comes only from the shell environment (see README.md);
+# the pipeline itself never reads an env file.
+name: yousong-analytics
+
+services:
+  analytics:
+    build:
+      context: .
+      target: runtime
+    image: yousong-analytics:latest
+    container_name: yousong-analytics
+    command: ["loop"]
+    environment:
+      ANALYTICS_DB_URL: ${ANALYTICS_DB_URL:?set ANALYTICS_DB_URL}
+      ANALYTICS_DB_USER: ${ANALYTICS_DB_USER:?set ANALYTICS_DB_USER}
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD}
+      ANALYTICS_HMAC_KEY: ${ANALYTICS_HMAC_KEY:?set ANALYTICS_HMAC_KEY}
+      ANALYTICS_INTERVAL_SECONDS: ${ANALYTICS_INTERVAL_SECONDS:-300}
+      ANALYTICS_LAG_SECONDS: ${ANALYTICS_LAG_SECONDS:-30}
+    # Reach a database published on the host (e.g. the backend's PostgreSQL) as host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - analytics_parquet:/data/parquet
+    restart: unless-stopped
+
+volumes:
+  # Private Parquet (raw, curated, quarantine). Never served or shared.
+  analytics_parquet:
