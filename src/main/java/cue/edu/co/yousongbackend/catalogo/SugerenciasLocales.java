@@ -25,8 +25,8 @@ class SugerenciasLocales {
     private static final String PLEGAR = "translate(lower(%s), '" + ConsultaCatalogo.CON_ACENTO + "', '"
             + ConsultaCatalogo.SIN_ACENTO + "')";
     private static final String BASE = "select youtube_video_id, titulo, artista_verificado, canal_titulo, "
-            + "duracion_proveedor_s, miniatura_url from (select c.youtube_video_id, c.titulo, c.artista_verificado, "
-            + "c.canal_titulo, c.duracion_proveedor_s, c.miniatura_url, "
+            + "duracion_proveedor_s, miniatura_url, genero_propio from (select c.youtube_video_id, c.titulo, "
+            + "c.artista_verificado, c.canal_titulo, c.duracion_proveedor_s, c.miniatura_url, c.genero_propio, "
             + PLEGAR.formatted("c.titulo || ' ' || coalesce(c.artista_verificado, '') || ' ' || coalesce(c.canal_titulo, '')")
             + " as pajar, " + PLEGAR.formatted("c.titulo") + " as titulo_plegado "
             + "from operacion.cancion c where c.titulo is not null and c.disponibilidad <> 'NO_DISPONIBLE') s where ";
@@ -74,7 +74,7 @@ class SugerenciasLocales {
             int duracion = fila.getInt("duracion_proveedor_s");
             return new CancionBusquedaResponse(fila.getString("youtube_video_id"), fila.getString("titulo"),
                     ArtistaDesdeCanal.etiqueta(verificado, canal), ArtistaDesdeCanal.verificado(verificado), canal,
-                    fila.wasNull() ? null : duracion, fila.getString("miniatura_url"));
+                    fila.wasNull() ? null : duracion, fila.getString("miniatura_url"), fila.getString("genero_propio"));
         }, parametros.toArray());
     }
 

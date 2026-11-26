@@ -67,7 +67,7 @@ class ColaProximasDefectoApiTest extends ColaApiTestSupport {
         JsonNode primero = proximas.get(0);
         assertThat(primero.propertyNames()).containsExactlyInAnyOrder("posicion", "cancion", "esperaEstimadaSegundos");
         assertThat(primero.get("cancion").propertyNames()).containsExactlyInAnyOrder("videoId", "titulo", "artista",
-                "artistaVerificado", "duracionSegundos", "miniaturaUrl");
+                "artistaVerificado", "duracionSegundos", "miniaturaUrl", "genero");
         assertThat(primero.get("cancion").get("titulo").asString()).isEqualTo("Titulo " + a);
         assertThat(primero.get("cancion").get("duracionSegundos").asInt()).isEqualTo(100);
     }

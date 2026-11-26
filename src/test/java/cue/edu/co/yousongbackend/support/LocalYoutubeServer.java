@@ -40,6 +40,7 @@ public final class LocalYoutubeServer {
     private final Map<String, Long> demoras = new ConcurrentHashMap<>();
     private final Map<String, Long> demorasPorConsulta = new ConcurrentHashMap<>();
     private final Map<String, String> videos = new ConcurrentHashMap<>();
+    private final List<String> grafico = new CopyOnWriteArrayList<>();
 
     public LocalYoutubeServer() {
         HttpServer[] holder = new HttpServer[1];
@@ -85,8 +86,20 @@ public final class LocalYoutubeServer {
         videos.put(video.id, video.json());
     }
 
-    /** Forgets scripts, delays, videos and recorded requests. Call it before every test. */
+    /**
+     * The videos {@code /videos?chart=mostPopular} answers, in this order (a chart request ignores the registered
+     * {@link #register videos}; a {@link #script} on {@code /videos} still overrides it).
+     */
+    public void chart(Video... enGrafico) {
+        grafico.clear();
+        for (Video video : enGrafico) {
+            grafico.add(video.json());
+        }
+    }
+
+    /** Forgets scripts, delays, videos, the chart and recorded requests. Call it before every test. */
     public void reset() {
+        grafico.clear();
         guiones.clear();
         demoras.clear();
         demorasPorConsulta.clear();
@@ -148,6 +161,7 @@ public final class LocalYoutubeServer {
         private String subida = "processed";
         private String envivo = "none";
         private String restriccion;
+        private List<String> topicos;
 
         private Video(String id) {
             this.id = id;
@@ -205,6 +219,12 @@ public final class LocalYoutubeServer {
             return this;
         }
 
+        /** {@code topicDetails.topicCategories}: Wikipedia URLs; without a call the video has no topicDetails. */
+        public Video topicos(String... urls) {
+            this.topicos = List.of(urls);
+            return this;
+        }
+
         public String json() {
             StringBuilder detalles = new StringBuilder();
             List<String> partes = new ArrayList<>();
@@ -215,12 +235,14 @@ public final class LocalYoutubeServer {
                 partes.add("\"regionRestriction\":" + restriccion);
             }
             detalles.append("{").append(String.join(",", partes)).append("}");
+            String temas = topicos == null ? "" : ",\"topicDetails\":{\"topicCategories\":["
+                    + String.join(",", topicos.stream().map(u -> "\"" + u + "\"").toList()) + "]}";
             return """
                     {"kind":"youtube#video","id":"%s",
                      "snippet":{"title":"%s","channelTitle":"%s","liveBroadcastContent":"%s","thumbnails":%s},
                      "contentDetails":%s,
-                     "status":{"uploadStatus":"%s","privacyStatus":"%s","embeddable":%s}}"""
-                    .formatted(id, titulo, canal, envivo, miniaturas, detalles, subida, privacidad, incrustable);
+                     "status":{"uploadStatus":"%s","privacyStatus":"%s","embeddable":%s}%s}"""
+                    .formatted(id, titulo, canal, envivo, miniaturas, detalles, subida, privacidad, incrustable, temas);
         }
     }
 
@@ -257,6 +279,10 @@ public final class LocalYoutubeServer {
                 Thread.sleep(demora);
             }
             Respuesta respuesta = guiones.get(path);
+            if (respuesta == null && path.equals("/videos") && query.containsKey("chart")) {
+                respuesta = new Respuesta(200, "{\"kind\":\"youtube#videoListResponse\",\"items\":["
+                        + String.join(",", grafico) + "]}");
+            }
             if (respuesta == null && path.equals("/videos")) {
                 respuesta = new Respuesta(200, videosJson(query.getOrDefault("id", "")));
             }

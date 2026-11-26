@@ -30,15 +30,26 @@ public interface CancionRepository extends JpaRepository<Cancion, UUID> {
      * <p>The operating duration (used by the estimated waits) starts from the provider duration: it is set when it
      * still holds the untouched 240-second default and the provider gave a duration ({@code null} means none). A
      * value that differs from 240 was chosen on purpose and is never overwritten.
+     *
+     * <p>The genre ({@code genero}, from YouTube's topics, {@code null} when it gave none) is written with source
+     * {@code youtube_topic} only when no genre is stored or the stored one came from the same source: a genre of any
+     * other source is never overwritten, and a known genre is never erased by a video that lost its topics.
      */
     @Modifying(flushAutomatically = true)
     @Query("update Cancion c set c.titulo = :titulo, c.miniaturaUrl = :miniatura, c.duracionProveedorS = :duracion, "
             + "c.duracionOperativaS = case when :duracion is not null and c.duracionOperativaS = 240 "
             + "then :duracion else c.duracionOperativaS end, "
             + "c.canalTitulo = :canal, c.disponibilidad = :disponibilidad, c.validadoAt = :validadoAt, "
-            + "c.metadatosExpiranAt = :expiraAt where c.youtubeVideoId = :videoId")
+            + "c.metadatosExpiranAt = :expiraAt, "
+            + "c.generoPropio = case when :genero is not null and (c.generoPropio is null "
+            + "or c.fuenteClasificacion = '" + GeneroMusical.FUENTE + "') then :genero else c.generoPropio end, "
+            + "c.fuenteClasificacion = case when :genero is not null and (c.generoPropio is null "
+            + "or c.fuenteClasificacion = '" + GeneroMusical.FUENTE + "') then '" + GeneroMusical.FUENTE + "' "
+            + "else c.fuenteClasificacion end "
+            + "where c.youtubeVideoId = :videoId")
     int actualizarMetadatos(@Param("videoId") String videoId, @Param("titulo") String titulo,
                             @Param("miniatura") String miniatura, @Param("duracion") Integer duracion,
                             @Param("canal") String canal, @Param("disponibilidad") Disponibilidad disponibilidad,
-                            @Param("validadoAt") Instant validadoAt, @Param("expiraAt") Instant expiraAt);
+                            @Param("validadoAt") Instant validadoAt, @Param("expiraAt") Instant expiraAt,
+                            @Param("genero") String genero);
 }

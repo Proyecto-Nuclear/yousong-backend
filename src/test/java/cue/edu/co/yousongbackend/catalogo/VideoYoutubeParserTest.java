@@ -33,6 +33,24 @@ class VideoYoutubeParserTest {
     }
 
     @Test
+    void theGenreComesFromTheTopicCategories() {
+        assertThat(parse(sano().topicos("https://en.wikipedia.org/wiki/Music", "https://en.wikipedia.org/wiki/Pop_music",
+                "https://en.wikipedia.org/wiki/Reggaeton").json()).genero()).isEqualTo("Reggaetón");
+    }
+
+    @Test
+    void withoutKnownTopicsTheGenreIsNull() {
+        assertThat(parse(sano().json()).genero()).isNull();
+        assertThat(parse(sano().topicos().json()).genero()).isNull();
+        assertThat(parse(sano().topicos("https://en.wikipedia.org/wiki/Entertainment").json()).genero()).isNull();
+        assertThat(parse("""
+                {"id":"abcdefghijk","topicDetails":{"topicCategories":"https://en.wikipedia.org/wiki/Pop_music"}}""")
+                .genero()).as("not an array").isNull();
+        assertThat(parse("""
+                {"id":"abcdefghijk","topicDetails":{"topicCategories":[7, null, {"a":1}]}}""").genero()).isNull();
+    }
+
+    @Test
     void prefersMediumThenHighThenDefaultThumbnail() {
         assertThat(parse(sano().miniaturas("""
                 {"default":{"url":"https://img.test/d.jpg"},"medium":{"url":"https://img.test/m.jpg"},"high":{"url":"https://img.test/h.jpg"}}""").json())

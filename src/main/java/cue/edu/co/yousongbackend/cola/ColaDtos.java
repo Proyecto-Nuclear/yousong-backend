@@ -27,14 +27,17 @@ public final class ColaDtos {
     public record ApoyoResponse(UUID solicitudId, long votos, boolean votado, Integer posicion, boolean creada) {
     }
 
-    /** A song as the queue shows it; the artist label follows the catalog rule ({@link ArtistaDesdeCanal}). */
+    /**
+     * A song as the queue shows it; the artist label follows the catalog rule ({@link ArtistaDesdeCanal}).
+     * {@code genero} is the stored genre ({@code cancion.genero_propio}), null when unknown.
+     */
     public record CancionCola(String videoId, String titulo, String artista, boolean artistaVerificado,
-                              Integer duracionSegundos, String miniaturaUrl) {
+                              Integer duracionSegundos, String miniaturaUrl, String genero) {
 
-        static CancionCola de(String videoId, String titulo, String artistaVerificado, String canal,
-                              Integer duracionSegundos, String miniaturaUrl) {
+        public static CancionCola de(String videoId, String titulo, String artistaVerificado, String canal,
+                                     Integer duracionSegundos, String miniaturaUrl, String genero) {
             return new CancionCola(videoId, titulo, ArtistaDesdeCanal.etiqueta(artistaVerificado, canal),
-                    ArtistaDesdeCanal.verificado(artistaVerificado), duracionSegundos, miniaturaUrl);
+                    ArtistaDesdeCanal.verificado(artistaVerificado), duracionSegundos, miniaturaUrl, genero);
         }
     }
 

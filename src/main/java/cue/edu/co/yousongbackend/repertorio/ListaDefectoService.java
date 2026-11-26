@@ -156,7 +156,7 @@ public class ListaDefectoService {
             return new ItemListaResponse(item.getPosicion(), cancion.getId(), cancion.getYoutubeVideoId(),
                     cancion.getTitulo(), ArtistaDesdeCanal.etiqueta(cancion.getArtistaVerificado(), cancion.getCanalTitulo()),
                     ArtistaDesdeCanal.verificado(cancion.getArtistaVerificado()), cancion.getCanalTitulo(),
-                    cancion.getDuracionProveedorS(), cancion.getMiniaturaUrl());
+                    cancion.getDuracionProveedorS(), cancion.getMiniaturaUrl(), cancion.getGeneroPropio());
         }).toList();
         return new ListaDefectoResponse(lista.getId(), lista.getNombre(), lista.getVersion(),
                 lista.getPoliticaRotacion(), lista.getCreadoAt(), detalle);

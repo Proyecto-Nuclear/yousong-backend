@@ -30,6 +30,12 @@ class YoutubeRestClient implements YoutubeClient {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /**
+     * The parts of every videos.list call. A call costs 1 quota unit whatever parts it asks for; topicDetails
+     * carries the topics the genre comes from ({@link GeneroMusical}).
+     */
+    static final String PARTES = "snippet,contentDetails,status,topicDetails";
+
     private final YoutubeProperties propiedades;
     private final RestClient http;
 
@@ -77,7 +83,7 @@ class YoutubeRestClient implements YoutubeClient {
         Map<String, VideoYoutube> porId = new LinkedHashMap<>();
         for (int desde = 0; desde < ids.size(); desde += LOTE_MAXIMO) {
             List<String> lote = ids.subList(desde, Math.min(ids.size(), desde + LOTE_MAXIMO));
-            JsonNode respuesta = llamar("/videos?key={key}&part=snippet,contentDetails,status&id={ids}",
+            JsonNode respuesta = llamar("/videos?key={key}&part=" + PARTES + "&id={ids}",
                     Map.of("key", propiedades.apiKey(), "ids", String.join(",", lote)));
             for (JsonNode item : respuesta.path("items")) {
                 VideoYoutube video = VideoYoutubeParser.desde(item, propiedades.regionCode());
@@ -94,6 +100,22 @@ class YoutubeRestClient implements YoutubeClient {
             }
         }
         return ordenados;
+    }
+
+    @Override
+    public List<VideoYoutube> masPopulares(String region, int maximo) {
+        JsonNode respuesta = llamar("/videos?key={key}&part=" + PARTES
+                        + "&chart=mostPopular&regionCode={region}&videoCategoryId=10&maxResults={maximo}",
+                Map.of("key", propiedades.apiKey(), "region", region, "maximo", Math.max(1, Math.min(50, maximo))));
+        List<VideoYoutube> videos = new ArrayList<>();
+        Set<String> vistos = new LinkedHashSet<>();
+        for (JsonNode item : respuesta.path("items")) {
+            VideoYoutube video = VideoYoutubeParser.desde(item, region);
+            if (video.videoId() != null && vistos.add(video.videoId())) {
+                videos.add(video);
+            }
+        }
+        return videos;
     }
 
     private JsonNode llamar(String plantilla, Map<String, ?> variables) {

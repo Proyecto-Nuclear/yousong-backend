@@ -3,7 +3,7 @@ package cue.edu.co.yousongbackend.catalogo;
 import java.util.Locale;
 import tools.jackson.databind.JsonNode;
 
-/** Turns one videos.list item (parts snippet, contentDetails, status) into a {@link VideoYoutube}. */
+/** Turns one videos.list item (parts snippet, contentDetails, status, topicDetails) into a {@link VideoYoutube}. */
 final class VideoYoutubeParser {
 
     static final String NO_INCRUSTABLE = "NOT_EMBEDDABLE";
@@ -34,7 +34,23 @@ final class VideoYoutubeParser {
                 miniatura(snippet.path("thumbnails")),
                 duracion,
                 motivo == null,
-                motivo);
+                motivo,
+                genero(item.path("topicDetails").path("topicCategories")));
+    }
+
+    /** The genre of {@code topicDetails.topicCategories}; anything but an array of strings counts as no topics. */
+    private static String genero(JsonNode temas) {
+        if (!temas.isArray()) {
+            return null;
+        }
+        java.util.List<String> urls = new java.util.ArrayList<>();
+        for (JsonNode tema : temas) {
+            String url = texto(tema);
+            if (url != null) {
+                urls.add(url);
+            }
+        }
+        return GeneroMusical.de(urls);
     }
 
     private static String motivoNoDisponible(JsonNode snippet, JsonNode detalles, JsonNode estado, String region) {

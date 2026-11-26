@@ -8,7 +8,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 class PoliticaController {
 
-    record PoliticaResponse(String version, List<PoliticaPrivacidad.Finalidad> finalidades) {
+    record PoliticaResponse(String version, List<PoliticaPrivacidad.Finalidad> finalidades,
+            List<PoliticaPrivacidad.Seccion> secciones) {
     }
 
     private final PoliticaPrivacidad politica;
@@ -19,6 +20,6 @@ class PoliticaController {
 
     @GetMapping("/api/public/politica")
     PoliticaResponse politica() {
-        return new PoliticaResponse(politica.version(), politica.finalidades());
+        return new PoliticaResponse(politica.version(), politica.finalidades(), politica.secciones());
     }
 }
