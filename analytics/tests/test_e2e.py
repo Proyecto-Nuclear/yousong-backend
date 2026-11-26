@@ -59,7 +59,8 @@ INSERT INTO operacion.participacion (id, sesion_id, dispositivo_id, seudonimo, i
  ('{P1}', '{S1}', '{D1}', 'p-1', '2025-11-21T00:40:00Z'), ('{P2}', '{S1}', '{D2}', 'p-2', '2025-11-21T00:41:00Z'),
  ('{P3}', '{S1}', '{D3}', 'p-3', '2025-11-21T00:42:00Z'), ('{P4}', '{S2}', NULL, 'p-4', '2025-11-22T00:40:00Z');
 INSERT INTO operacion.consentimiento (id, participacion_id, politica_version, finalidad, accion, canal) VALUES
- ('0f000000-0000-4000-8000-000000000004', '{P4}', '1', 'F1', 'AUTORIZA', 'ANDROID');
+ ('0f000000-0000-4000-8000-000000000004', '{P4}', '1', 'F1', 'AUTORIZA', 'ANDROID'),
+ ('0f000000-0000-4000-8000-000000000001', '{P1}', '1', 'F1', 'AUTORIZA', 'ANDROID');
 INSERT INTO operacion.solicitud (id, sesion_id, cancion_id, creador_id, estado, creada_at, finalizada_at) VALUES
  ('{A[1]}', '{S1}', '{C1}', '{P1}', 'ATENDIDA', '2025-11-21T01:00:00Z', '2025-11-21T01:14:00Z'),
  ('{A[2]}', '{S1}', '{C2}', '{P2}', 'SALTADA', '2025-11-21T01:05:00Z', '2025-11-21T01:16:00Z'),
@@ -214,7 +215,7 @@ def test_dimensions_and_id_mapping(database, first_run):
 def test_participation_is_pseudonymous(database, first_run):
     rows = all_(database, "SELECT sesion_id::text, participante_ref, canal FROM analitica.dim_participacion")
     assert len(rows) == 4
-    expected = {participante_ref(KEY.encode(), S1, P1): "WEB", participante_ref(KEY.encode(), S2, P4): "ANDROID"}
+    expected = {participante_ref(KEY.encode(), S1, P1): "ANDROID", participante_ref(KEY.encode(), S2, P4): "ANDROID"}
     by_ref = {r[1]: r[2] for r in rows}
     assert all(by_ref[ref] == canal for ref, canal in expected.items())
     stored = {str(r[0]) for r in all_(database, "SELECT id FROM analitica.dim_participacion")}

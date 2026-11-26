@@ -70,11 +70,12 @@ SNAPSHOT = {
                         UNION SELECT il.lista_id FROM operacion.reproduccion r
                                 JOIN operacion.item_lista il ON il.id = r.item_lista_id
                                WHERE r.sesion_id = ANY(%(ids)s::uuid[]))""",
-    # Channel of the device; if retention already unlinked the device, the channel declared with the consent.
+    # Channel declared when joining (first consent), as the live endpoint reads it: a known phone keeps its original
+    # channel in `dispositivo` even if it joins from the other client. The device is the fallback.
     "participacion": """
         SELECT p.id, p.sesion_id, p.ingreso_at,
-               coalesce(d.canal, (SELECT c.canal FROM operacion.consentimiento c WHERE c.participacion_id = p.id
-                                   ORDER BY c.registrado_at, c.id LIMIT 1)) AS canal
+               coalesce((SELECT c.canal FROM operacion.consentimiento c WHERE c.participacion_id = p.id
+                          ORDER BY c.registrado_at, c.id LIMIT 1), d.canal) AS canal
           FROM operacion.participacion p LEFT JOIN operacion.dispositivo d ON d.id = p.dispositivo_id
          WHERE p.sesion_id = ANY(%(ids)s::uuid[])""",
     "cancion": """
