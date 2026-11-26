@@ -5,16 +5,24 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The owner's analytics dashboard: one session computed live ({@link AnaliticaJornadaService}). The establishment
- * is always the caller's own; parameters are read as text so every malformed value gets the documented error.
+ * The owner's analytics dashboard: the published history ({@link AnaliticaHistoricaService}) and one session
+ * computed live ({@link AnaliticaJornadaService}). The establishment is always the caller's own; parameters are read
+ * as text so every malformed value gets the documented error.
  */
 @RestController
 class AnaliticaController {
 
+    private final AnaliticaHistoricaService historial;
     private final AnaliticaJornadaService jornada;
 
-    AnaliticaController(AnaliticaJornadaService jornada) {
+    AnaliticaController(AnaliticaHistoricaService historial, AnaliticaJornadaService jornada) {
+        this.historial = historial;
         this.jornada = jornada;
+    }
+
+    @GetMapping("/api/mi-establecimiento/analitica")
+    AnaliticaResponse historial(@RequestParam(name = "jornadas", required = false) String jornadas) {
+        return historial.historial(jornadas);
     }
 
     @GetMapping("/api/mi-establecimiento/analitica/jornada")
