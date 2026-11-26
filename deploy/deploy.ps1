@@ -16,14 +16,14 @@ function Die($Message) { Write-Host ""; Write-Host "ERROR: $Message" -Foreground
 function Get-Cfg($Key) {
     if (-not (Test-Path $Config)) { return "" }
     $value = ""
-    foreach ($line in Get-Content $Config) {
+    foreach ($line in Get-Content -Encoding UTF8 $Config) {
         if ($line -match "^$Key=(.*)$") { $value = $Matches[1].Trim().Trim('"') }
     }
     return $value
 }
 
 function Set-Cfg($Key, $Value) {
-    $lines = @(Get-Content $Config)
+    $lines = @(Get-Content -Encoding UTF8 $Config)
     $found = $false
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i] -match "^$Key=") { $lines[$i] = "$Key=$Value"; $found = $true }
@@ -121,12 +121,16 @@ function Invoke-Compose {
 }
 
 function Test-Docker {
+    # Windows PowerShell 5.1 turns redirected native stderr into a terminating error under "Stop".
+    $ErrorActionPreference = "Continue"
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Die "Docker Desktop no esta instalado (https://docs.docker.com/desktop/)." }
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) { Die "Docker no responde: abre Docker Desktop y espera a que diga 'Engine running'." }
 }
 
 function Wait-Healthy {
+    # Windows PowerShell 5.1 turns redirected native stderr into a terminating error under "Stop".
+    $ErrorActionPreference = "Continue"
     Say "Esperando a que los servicios esten listos (la primera vez puede tardar varios minutos)"
     $deadline = (Get-Date).AddMinutes(15)
     while ($true) {

@@ -20,6 +20,7 @@ cfg_set() {
         printf '%s=%s\n' "$1" "$2" >> "$tmp"
     fi
     mv "$tmp" "$CONFIG"
+    chmod 600 "$CONFIG"
 }
 random_hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 

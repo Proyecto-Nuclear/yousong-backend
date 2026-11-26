@@ -26,6 +26,8 @@ RUN curl -fsSL -o /tmp/tools.zip \
 
 WORKDIR /src
 COPY . .
+# A Windows checkout may turn the wrapper script into CRLF, which Linux cannot run.
+RUN sed -i 's/\r$//' gradlew && chmod +x gradlew
 # The repository pins the Gradle daemon to a JetBrains runtime (Android Studio); here the image JDK runs it.
 # local.properties points to the developer's SDK and must not be used.
 RUN rm -f gradle/gradle-daemon-jvm.properties local.properties \
