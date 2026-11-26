@@ -115,7 +115,7 @@ id. `ns` is fixed in `yousong_analytics/ids.py`.
 - Local hour and ISO weekday use the establishment's `zona_horaria`; a night that crosses midnight keeps its
   `dim_sesion.fecha_operativa`.
 - Participation counts every `operacion.participacion` of the session; channel from its first (join) consent, or from its
-  consent record when retention already unlinked the device.
+  device when it has no consent record.
 
 ## Contracts
 
