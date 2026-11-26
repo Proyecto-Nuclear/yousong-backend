@@ -478,15 +478,20 @@ Errors: `404 ESTABLISHMENT_NOT_FOUND`.
 
 #### GET `/api/public/politica` - current privacy policy
 
-Who: public. Response `200`: `version` (string), `finalidades[]` with `codigo` (`F1` \| `F2`) and `descripcion`
-(English text). Captured:
+Who: public. Response `200`: `version` (string), `finalidades[]` with `codigo` (`F1` \| `F2`) and
+`descripcion` (Spanish), and `secciones[]` with `titulo` and `texto` (the full notice, Spanish, in display
+order). Shortened example:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "finalidades": [
-    {"codigo": "F1", "descripcion": "Participation in the music session: request and vote for songs, control of the supports you use, operation of the service, handling of incidents and session statistics. Required to participate."},
-    {"codigo": "F2", "descripcion": "Voluntary feedback about the usability of the application. Optional and separate: you can participate without it."}
+    {"codigo": "F1", "descripcion": "Participar en la noche musical: pedir y votar canciones, ..."},
+    {"codigo": "F2", "descripcion": "Enviar retroalimentación voluntaria sobre la facilidad de uso ..."}
+  ],
+  "secciones": [
+    {"titulo": "Responsable", "texto": "..."},
+    {"titulo": "Tus derechos", "texto": "..."}
   ]
 }
 ```
@@ -545,7 +550,7 @@ F2 when authorized), revokes the device's previous credentials in this session, 
 ```bash
 curl -s -X POST http://localhost:8080/api/public/establecimientos/bar-la-esquina-d40cc0/participaciones \
   -H 'Content-Type: application/json' \
-  -d '{"canal":"ANDROID","politicaVersion":"1.0","autorizaF1":true,"autorizaF2":false,"dispositivoToken":"'"$DV"'"}'
+  -d '{"canal":"ANDROID","politicaVersion":"1.1","autorizaF1":true,"autorizaF2":false,"dispositivoToken":"'"$DV"'"}'
 ```
 
 #### GET `/api/public/establecimientos/{qrSlug}/cola` - public queue snapshot
@@ -1561,7 +1566,7 @@ SLUG=bar-la-esquina-d40cc0
 curl -s $API/api/public/establecimientos/$SLUG
 curl -s $API/api/public/politica
 PT=$(curl -s -X POST $API/api/public/establecimientos/$SLUG/participaciones -H 'Content-Type: application/json' \
-  -d '{"canal":"WEB","politicaVersion":"1.0","autorizaF1":true}' | jq -r .token)
+  -d '{"canal":"WEB","politicaVersion":"1.1","autorizaF1":true}' | jq -r .token)
 curl -s "$API/api/participante/catalogo/sugerencias?q=la%20cam" -H "Authorization: Bearer $PT"
 curl -s -X POST $API/api/participante/solicitudes -H "Authorization: Bearer $PT" \
   -H 'Content-Type: application/json' -d '{"videoId":"vidCamisa01"}'
@@ -1810,7 +1815,7 @@ curl -N $API/api/public/establecimientos/$SLUG/cola/eventos
 | `app.participante.queue-actions-per-minute` | 10 | Requests + votes/min |
 | `app.participante.join-per-minute-per-address` / `-per-establishment` | 10 / 120 | Join limits |
 | `app.participante.max-per-session` | 5000 | Participations per session |
-| `app.privacy.policy-version` | 1.0 | Required `politicaVersion` |
+| `app.privacy.policy-version` | 1.1 | Required `politicaVersion` |
 | `app.cola.re-request-minutes` | 30 | Re-request window |
 | `app.cola.max-active-per-session` | 200 | `QUEUE_FULL` threshold |
 | `app.cola.sse-timeout-minutes` | 30 | Stream lifetime |
