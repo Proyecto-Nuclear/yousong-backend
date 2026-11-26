@@ -43,3 +43,7 @@ odd/
 .env
 .env.*
 !.env.example
+
+### Deployment configuration (generated secrets) ###
+deploy/config.env
+deploy/config.env.tmp

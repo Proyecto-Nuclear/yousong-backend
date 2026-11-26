@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Descargar YouSong</title>
+  <style>
+    :root { color-scheme: dark; --bg: #1b1233; --card: #2a1d4d; --text: #f4f0ff; --muted: #c9bfe6; --accent: #ffb340; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+           font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 2rem; margin: 0 0 4px; }
+    p.lead { color: var(--muted); margin: 0 0 24px; }
+    .grid { display: grid; gap: 24px; grid-template-columns: 1fr; }
+    @media (min-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+    .card { background: var(--card); border-radius: 16px; padding: 20px; }
+    .qr { text-align: center; }
+    .qr img { width: 100%; max-width: 420px; height: auto; background: #fff; border-radius: 12px; padding: 8px; }
+    .url { font-family: ui-monospace, monospace; word-break: break-all; color: var(--muted); }
+    a.btn { display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 999px; background: var(--accent);
+            color: #241400; font-weight: 700; text-decoration: none; }
+    ol { padding-left: 1.2em; margin: 0; }
+    li { margin-bottom: 8px; }
+    .note { color: var(--muted); font-size: 0.95rem; margin-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>YouSong para Android</h1>
+  <p class="lead">Escanea el código con la cámara del celular para descargar la aplicación. El celular debe estar conectado a la misma red wifi que este equipo.</p>
+  <div class="grid">
+    <section class="card qr">
+      <img src="qr.png" alt="Código QR para descargar la aplicación YouSong">
+      <p class="url">__APK_URL__</p>
+      <a class="btn" href="yousong.apk" download>Descargar APK</a>
+    </section>
+    <section class="card">
+      <h2>Cómo instalarla</h2>
+      <ol>
+        <li>Conéctate a la misma red wifi que el equipo que muestra esta página.</li>
+        <li>Escanea el código QR (o abre <span class="url">__APK_URL__</span> en el navegador del celular).</li>
+        <li>Descarga el archivo <strong>yousong.apk</strong> y ábrelo.</li>
+        <li>Si Android lo pide, permite <strong>instalar aplicaciones desconocidas</strong> para el navegador o el administrador de archivos.</li>
+        <li>Abre YouSong, toca <strong>Escanear QR</strong> y escanea el código del local que se muestra en el panel del propietario.</li>
+      </ol>
+      <p class="note">Versión de demostración para la red local: la aplicación se conecta al servidor http://__HOST_IP__:8080. Si ya tenías una versión anterior instalada, esta la actualiza sin borrarla.</p>
+    </section>
+  </div>
+</main>
+</body>
+</html>
