@@ -14,7 +14,7 @@ import java.util.UUID;
 /** Helpers shared by the participant tests: joining through the QR slug, opening and closing sessions. */
 public abstract class ParticipanteApiTestSupport extends ApiIntegrationTest {
 
-    protected static final String POLICY_VERSION = "1.0";
+    protected static final String POLICY_VERSION = "1.1";
 
     private final HttpClient http = HttpClient.newHttpClient();
 

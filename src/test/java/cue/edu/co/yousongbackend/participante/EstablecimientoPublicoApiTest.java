@@ -84,5 +84,11 @@ class EstablecimientoPublicoApiTest extends ParticipanteApiTestSupport {
         assertThat(finalidades.get(0).get("descripcion").asString()).isNotBlank();
         assertThat(finalidades.get(1).get("codigo").asString()).isEqualTo("F2");
         assertThat(finalidades.get(1).get("descripcion").asString()).isNotBlank();
+        String texto = response.body();
+        assertThat(texto).contains("pedir y votar canciones", "retroalimentación")
+                .doesNotContain("Participation", "Voluntary feedback");
+        assertThat(texto).contains("Ley 1581 de 2012", "10 días hábiles", "15 días hábiles", "90 días", "30 días",
+                "12 meses", "mayores de edad", "Superintendencia de Industria y Comercio", "YouTube");
+        assertThat(json(response).get("secciones").size()).isGreaterThanOrEqualTo(5);
     }
 }
