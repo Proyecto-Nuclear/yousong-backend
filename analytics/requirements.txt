@@ -1,0 +1,4 @@
+# Runtime dependencies (pinned). PySpark 4.1.x runs on Python 3.10+ and Java 17/21.
+pyspark==4.1.1
+py4j==0.10.9.9
+psycopg[binary]==3.2.10
